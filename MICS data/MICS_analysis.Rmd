@@ -1,0 +1,17 @@
+```{r}
+# Install the haven package if not already installed
+if (!requireNamespace("haven", quietly = TRUE)) {
+  install.packages("haven")
+}
+
+# Load the haven package
+library(haven)
+
+# Import the .sav file into R
+dataset1 <- read_sav("/Users/michelle/Desktop/junk drawer/Thesis Data Sources/MICS_Datasets /Kyrgyzstan MICS6 2023 Datasets/Kyrgyzstan MICS6 2023 SPSS Datasets/hh.sav")
+dataset2 <- read_sav("/Users/michelle/Desktop/junk drawer/Thesis Data Sources/MICS_Datasets /Kyrgyzstan MICS6 2023 Datasets/Kyrgyzstan MICS6 2023 SPSS Datasets/hl.sav")
+
+str(dataset2)
+```
+
+Finding that MICS is too generalized & did not ask anything about labor migrants, which are such a large part of family structure in Kyrgyzstan. 

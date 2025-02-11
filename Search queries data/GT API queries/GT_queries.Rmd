@@ -1,0 +1,150 @@
+Preliminary queries from Google Trends API
+Saturday, February 8 2025
+
+Picked 5 most relevant Russian/Kyrgyz pairs:
+1. работа / жумуш (work)
+2. вакансии / жумуш орундары (job openings)
+3. поиск работы / жумуш издейм (search for work)
+4. зарплата / айлык маяна (salary)
+5. акча которуу / переводы денег в Кыргызстан (money transfers)
+
+This document withdraws the data with the Google Trends API and aggregates to
+the region/year level, prepared for merging easily. 
+
+ChatGPT was used to produce the skeleton code and do debugging. 
+
+- - - - - - - - - - - - - - -
+
+Install/load packages:
+```{r packages}
+#install.packages("gtrendsR")
+#install.packages("dplyr")
+library(gtrendsR)
+library(dplyr)
+```
+
+Define keywords:
+```{r keywords}
+keywords <- c(
+  "работа", "жумуш",           # 1. работа / жумуш (work)
+  "вакансии", "жумуш орундары", # 2. вакансии / жумуш орундары (job openings)
+  "поиск работы", "жумуш издейм", # 3. поиск работы / жумуш издейм (search for work)
+  "зарплата", "айлык маяна",    # 4. зарплата / айлык маяна (salary)
+  "акча которуу", "переводы денег в Кыргызстан" # 5. акча которуу / переводы денег в Кыргызстан (money transfers)
+)
+```
+
+Define function to retrieve google trends:
+```{r function-trends}
+get_trends_data <- function(keywords, time_range) {
+  all_trends_data <- list()  # Initialize empty list to store results
+  
+  # Iterate over each keyword
+  for (keyword in keywords) {
+    attempts <- 0
+    success <- FALSE
+    while (attempts < 5 && !success) {  # Retry up to 5 times if rate-limited
+      tryCatch({
+        # Add a small delay to avoid hitting rate limits too quickly
+        Sys.sleep(2 + attempts * 2)  # Exponential backoff: increases delay with each attempt
+        
+        trend_data <- gtrends(keyword = keyword, gprop = "web", geo = "RU", time = "all", hl = "ru-RU")
+        
+        # Debug: Print the full response from gtrends to check for issues
+        message(paste("Received data for keyword:", keyword))
+        message("Response data structure:")
+        print(str(trend_data))
+        
+        # Check if the trend_data contains valid information
+        if (!is.null(trend_data) && !is.null(trend_data$interest_over_time)) {
+          trends_df <- trend_data$interest_over_time
+          
+          # Debug: Print the size of the data
+          message(paste("Number of rows for", keyword, ":", nrow(trends_df)))
+          
+          # If data exists, add it to the list
+          if (nrow(trends_df) > 0) {
+            all_trends_data[[keyword]] <- trends_df
+            success <- TRUE  # Mark as successful
+          } else {
+            message(paste("No data for keyword:", keyword))
+            success <- TRUE  # Avoid retrying if no data is returned
+          }
+        } else {
+          stop("Invalid data received for keyword: ", keyword)
+        }
+      }, error = function(e) {
+        # Print error message and retry
+        message(paste("Error for keyword:", keyword, " - ", e$message))
+        attempts <- attempts + 1
+        if (attempts >= 5) {
+          message(paste("Failed to retrieve data for keyword:", keyword, "after 5 attempts."))
+        }
+        
+        # If rate-limited (Status code 429), retry after waiting
+        if (grepl("Status code 429", e$message)) {
+          message("Rate-limited. Retrying after a delay...")
+          Sys.sleep(30)  # Longer pause for rate-limited requests
+        }
+      })
+      
+      # If still not successful, retry after a small delay
+      if (!success) {
+        message(paste("Retrying keyword:", keyword, "attempt", attempts))
+      }
+    }
+  }
+  
+  return(all_trends_data)
+}
+```
+
+Run the function. Get trends data.
+```{r run-trends}
+trends_data <- get_trends_data(keywords, time_range)
+```
+
+Check structure for each keywords
+```{r check-trends}
+head(trends_data[[1]])
+```
+
+Aggregate data by year
+```{r yearly-function}
+aggregate_data_by_year <- function(trends_data) {
+  aggregated_data <- list()
+  
+  for (keyword in names(trends_data)) {
+    df <- trends_data[[keyword]]
+    
+    # Convert date column to Date type
+    df$date <- as.Date(df$date)
+    
+    # Aggregate by year (average interest for each year)
+    df_yearly <- df %>%
+      mutate(year = format(date, "%Y")) %>%
+      group_by(year) %>%
+      summarise(interest_avg = mean(hit, na.rm = TRUE)) %>%
+      ungroup()  # Ungroup the data after aggregation
+    
+    # Store the aggregated data
+    aggregated_data[[keyword]] <- df_yearly
+  }
+  
+  return(aggregated_data)
+}
+
+#Run the function
+yearly_trends_data <- aggregate_data_by_year(trends_data)
+```
+
+Check the structure of the yearly data for each keyword.
+```{r check-yearly}
+print(yearly_trends_data[[1]])
+```
+
+Save to a dataset! 
+```{r save-data}
+
+```
+

@@ -1,0 +1,145 @@
+Goal: merge manually-downloaded Yandex data into a single dataframe for each keyword.
+
+```{r}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(tidyr)
+```
+
+
+```{r}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+
+# List all folders (keywords)
+folders <- list.dirs(full.names = TRUE, recursive = FALSE)
+
+# Define the output directory
+output_dir <- "/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/clean keyword data"
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Loop through each folder
+for (folder in folders) {
+  setwd("/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/raw keyword data")
+  
+  keyword <- basename(folder)  # Extract the folder name
+  files <- list.files(folder, pattern = "*.csv", full.names = TRUE)  # List all CSV files
+  
+  keyword_df <- NULL  # Initialize an empty dataframe for the keyword
+  
+  for (file in files) {
+    # Read the file
+    temp_df <- read_delim(file, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+    
+    # Extract the region title from column 4
+    col4_name <- colnames(temp_df)[4] 
+    region <- sub(".*30\\.12\\.2024, ([^,]+), all devices.*", "\\1", col4_name)  # Extract region
+    
+    if (grepl("Moscow and Moscow Oblast, except Moscow", col4_name)) {
+      region <- "Moscow Oblast"
+    } else if (grepl("Saint-Petersburg and Leningrad Oblast, except Saint Petersburg", col4_name)) {
+      region <- "Leningrad Oblast"
+    }
+    
+    # Select relevant columns and rename them
+    temp_df <- temp_df[, 1:2]  # Keep only "Period" and "Number of queries"
+    temp_df[[2]] <- as.numeric(str_replace_all(temp_df[[2]], " ", ""))  # Remove spaces and convert to numeric
+    colnames(temp_df) <- c("Period", region)  # Rename second column to the region
+    
+    # Merge into main dataframe
+    if (is.null(keyword_df)) {
+      keyword_df <- temp_df  # First file becomes the dataframe
+    } else {
+      keyword_df <- full_join(keyword_df, temp_df, by = "Period")  # Merge by "Period"
+    }
+  }
+  
+  # Convert "Period" to date format (assumes format like "December 2017")
+  keyword_df <- keyword_df %>%
+    mutate(Period = my(Period)) %>%  # Convert to Date using lubridate
+    mutate(across(-Period, ~ as.numeric(str_replace_all(., " ", "")))) # Clean number format
+  
+  # Assign the dataframe to a variable named after the keyword
+  assign(keyword, keyword_df, envir = .GlobalEnv)
+
+  # Save the cleaned dataframe as a CSV
+  write_csv(keyword_df, file.path(output_dir, paste0(keyword, ".csv")))
+
+}
+```
+
+Now process and merge the keyword data together:
+```{r}
+# Set the directory for the cleaned keyword data
+clean_data_dir <- "/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/clean keyword data"
+
+# List all the CSV files in the directory
+files <- list.files(clean_data_dir, pattern = "*.csv", full.names = TRUE)
+
+# Initialize an empty list to store the dataframes
+long_data_list <- list()
+
+# Loop through each file
+for (file in files) {
+  
+  # Read the current CSV file
+  temp_df <- read_csv(file)
+  
+  # Extract the keyword from the file name (without extension)
+  keyword <- tools::file_path_sans_ext(basename(file))
+  
+  # Convert to long format
+  temp_long_df <- temp_df %>%
+    pivot_longer(cols = -Period, names_to = "region", values_to = keyword) %>%
+    rename(Period = Period)  # Rename the 'Period' column explicitly
+  
+  # Store the long format data in the list
+  long_data_list[[keyword]] <- temp_long_df
+}
+
+# Merge all datasets by 'Period' and 'region' (with outer join to keep all observations)
+yandex_keywords_monthly <- Reduce(function(x, y) {
+  merge(x, y, by = c("Period", "region"), all = TRUE)
+}, long_data_list)
+
+# View the result
+head(yandex_keywords_monthly)
+```
+
+Annualize:
+```{r}
+# Extract the year from the 'Period' column and create a new 'Year' column
+yandex_keywords_monthly <- yandex_keywords_monthly %>%
+  mutate(Year = year(Period))  # Extract the year
+
+# Group by region and year, then sum the numeric data for each region/year
+yandex_keywords_annual <- yandex_keywords_monthly %>%
+  group_by(region, Year) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE), .groups = "drop")
+
+# View the result
+head(yandex_keywords_annual)
+```
+
+Sanitize columns so R can handle them:
+```{r}
+# Rename the columns manually
+colnames(yandex_keywords_annual) <- c("Region", "Year", "Jumush", "Rabota")
+
+# View the result
+head(yandex_keywords_annual)
+```
+
+Export:
+```{r}
+write_csv(yandex_keywords_annual, file.path("/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries", "Yandex_keywords_annual.csv"))
+```
+

@@ -1,0 +1,226 @@
+This file will use the prepared data to run the elastic net, tune it, and deploy the model to predict the entire 2018-2024 range.
+
+Load libraries:
+```{r}
+library(tidyverse)
+library(glmnet)
+library(caret)
+library(viridis)
+```
+
+Load in data:
+```{r}
+merged_data <- read.csv("/Users/michelle/Documents/thesis/merged_data.csv")
+```
+
+When building the model, filter the data for 2021-2023.
+```{r}
+merged_data <- merged_data %>%
+  filter(Year >= 2021 & Year <= 2023)
+```
+
+Prepare feature and target sets:
+```{r}
+# Step 1: Prepare predictors (exclude non-predictors)
+data_clean <- merged_data %>%
+  select(-Region, -Year, -Inflow, -Outflow, -Netflow)
+
+# Convert categorical Region to dummy variables (fixed effects)
+data_dummies <- model.matrix(~ Region - 1, data = merged_data) %>% as.data.frame()
+
+# Merge cleaned data with dummies
+data_clean <- bind_cols(data_clean, data_dummies)
+
+# Step 2: Split into training (2021-22) and validation (2023)
+train_data <- merged_data %>% filter(Year %in% c(2021, 2022))
+val_data   <- merged_data %>% filter(Year == 2023)
+
+# Extract response variable (Inflow)
+y_train <- train_data$Inflow
+y_val   <- val_data$Inflow
+
+# Prepare predictor matrices (ensure all numeric)
+X_train <- train_data %>%
+  select(-Region, -Year, -Inflow, -Outflow, -Netflow) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix()
+
+X_val <- val_data %>%
+  select(-Region, -Year, -Inflow, -Outflow, -Netflow) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix()
+```
+
+Add regional dummies: 
+```{r}
+# Add regional dummies consistently across datasets
+train_data_dummies <- model.matrix(~ Region - 1, data = train_data) %>% as.data.frame()
+val_data_dummies <- model.matrix(~ Region - 1, data = val_data) %>% as.data.frame()
+
+# Ensure dummy variable alignment
+common_cols <- intersect(names(train_data_dummies), names(val_data_dummies))
+train_data_dummies <- train_data_dummies[, common_cols, drop = FALSE]
+val_data_dummies <- val_data_dummies[, common_cols, drop = FALSE]
+
+# Bind the dummy variables
+X_train <- cbind(X_train, as.matrix(train_data_dummies))
+X_val <- cbind(X_val, as.matrix(val_data_dummies))
+```
+
+Tuning the model:
+```{r}
+# Step 3: Grid search over α and λ using cross-validation
+alpha_values <- seq(0, 1, by = 0.1)  
+lambda_values <- 10^seq(-3, 3, length.out = 100)
+
+results <- expand.grid(alpha = alpha_values, lambda = lambda_values) %>%
+  mutate(RMSE = NA)
+
+# Run elastic net for each (α, λ) combination
+for (i in 1:nrow(results)) {
+  model <- glmnet(X_train, y_train, alpha = results$alpha[i], lambda = results$lambda[i])
+  preds <- predict(model, X_val, s = results$lambda[i])  # Predict on validation set
+  results$RMSE[i] <- sqrt(mean((y_val - preds)^2))  # Compute RMSE
+}
+
+# Find best (α, λ)
+best_params <- results %>% filter(RMSE == min(RMSE))
+best_alpha <- best_params$alpha
+best_lambda <- best_params$lambda
+```
+
+Plot tuning:
+```{r}
+# Plot λ vs α to visualize tuning parameters
+min_rmse_point <- results[which.min(results$RMSE), ]
+# Create the label text
+label_text <- paste("Best Model for Validation Year (2023)\n",
+                    "Alpha: ", round(min_rmse_point$alpha, 3), "\n",
+                    "Lambda: ", round(min_rmse_point$lambda, 3), "\n",
+                    "RMSE: ", round(min_rmse_point$RMSE, 3), sep = "")
+
+ggplot(results, aes(x = alpha, y = log(lambda), color = log(RMSE))) +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis(option = "D") +  # Apply the viridis color scale
+  geom_point(data = min_rmse_point, aes(x = alpha, y = log(lambda)), 
+             color = "black", size = 5, shape = 1) +  # Add a circle around the minimum RMSE point
+  geom_label(data = min_rmse_point, aes(x = alpha, y = log(lambda), label = label_text),
+             color = "black", fill = "white", alpha = 0.5, 
+             vjust = -0.15, hjust = 0.95, label.size = 0.3) +  # Add label with background and transparency
+  labs(title = "Tuning parameters: Alpha v. Lambda",
+       x = "Alpha",
+       y = "Log(Lambda)",
+       color = "RMSE") +
+  theme_minimal()
+
+# Save the ggplot as a high-resolution PNG
+ggsave("/Users/michelle/Documents/thesis/tuning_parameters_plot.png", width = 10, height = 7.5, dpi = 300)
+```
+
+Train finalized model on all data to create best possible fit:
+```{r}
+# Step 4: Train final model on all data (2021-2023)
+X_all <- merged_data %>%
+  select(-Region, -Year, -Inflow, -Outflow, -Netflow) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  as.matrix()
+
+y_all <- merged_data$Inflow
+
+# Add regional dummies to full dataset
+all_data_dummies <- model.matrix(~ Region - 1, data = merged_data) %>% as.data.frame()
+all_data_dummies <- all_data_dummies[, common_cols, drop = FALSE]  # Ensure alignment
+X_all <- cbind(X_all, as.matrix(all_data_dummies))
+
+# Train final elastic net model
+final_model <- glmnet(X_all, y_all, alpha = best_alpha, lambda = best_lambda)
+```
+
+Plot residuals to check fit:
+```{r}
+# Predictions & Residuals
+predictions <- predict(final_model, X_all, s = best_lambda)
+residuals <- y_all - predictions
+
+# Plot residuals
+png("/Users/michelle/Documents/thesis/residual_plot.png", width = 2000, height = 1500, res = 300)
+
+plot(residuals, main = "Residual Plot (final model run on full data 2021-2023)", xlab = "Index (Ordered by Regions)", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+dev.off()
+```
+
+Report model fit metrics:
+```{r}
+rmse <- sqrt(mean(residuals^2))
+r2 <- cor(y_all, predictions)^2
+
+cat("Optimal Alpha:", best_alpha, "\n")
+cat("Optimal Lambda:", best_lambda, "\n")
+
+#these will be different because it's trained on all the data.
+cat("Final Model RMSE:", rmse, "\n")
+cat("Final Model R-squared:", r2, "\n")
+```
+
+Report final model coefficients and dropped variables:
+```{r}
+# Extract coefficients from the final model
+coef_matrix <- coef(final_model, s = best_lambda)
+
+# Convert to a data frame for easier interpretation
+coef_df <- as.data.frame(as.matrix(coef_matrix))
+coef_df$Variable <- rownames(coef_df)
+colnames(coef_df) <- c("Coefficient", "Variable")
+
+# Identify dropped variables (coefficients exactly zero)
+dropped_vars <- coef_df %>% filter(Coefficient == 0)
+
+# Identify nonzero coefficients (selected variables)
+selected_vars <- coef_df %>% filter(Coefficient != 0)
+
+# Print results
+cat("Dropped Variables (LASSO removed these):\n")
+print(dropped_vars$Variable)
+
+cat("\nFull Model Coefficients:\n")
+print(selected_vars)
+```
+
+Save the model for use in other .Rmd files:
+```{r}
+# Save the full model as an RDS file
+saveRDS(final_model, "/Users/michelle/Documents/thesis/proxy models/final_inflow_model.rds")
+```
+
+
+```{r}
+# Add residuals to the original dataset
+merged_data$residuals <- residuals
+
+# Now, filter for the selected regions
+regions_of_interest <- c("Moscow", "Sakha (Yakutia) Republic", "Sakhalin District", 
+                         "Kaliningrad Oblast", "Moscow Oblast", "Kamchatka Krai", 
+                         "Altai Krai", "Chelyabinsk Oblast", "Sverdlovsk Oblast")
+
+subset_data <- merged_data %>%
+  filter(Region %in% regions_of_interest)
+
+# Plot residuals for each region as a classic residual plot
+ggplot(subset_data, aes(x = residuals, y = as.factor(Region), color = Region)) + 
+  geom_point(size = 3) +  # Scatter plot for residuals
+  labs(title = "Residual Plot (final model on full data 2021-2023)", 
+       x = "Residuals", y = "Region") + 
+  theme_minimal() + 
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5),  # Center the title
+        axis.text.y = element_text(size = 10),
+        panel.grid.major = element_line(color = "gray", size = 0.5),  # Major grid lines
+        panel.grid.minor = element_line(color = "lightgray", size = 0.25)) +  # Minor grid lines
+  geom_text(aes(label = round(residuals, 2)), size = 3, vjust = -1) + # Label the residuals
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 1)  # Add a dashed line at residuals = 0
+
+ggsave("/Users/michelle/Documents/thesis/residuals_by_region.png", width = 10, height = 7.5, dpi = 300)
+```
+

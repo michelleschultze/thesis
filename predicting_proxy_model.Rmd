@@ -1,44 +1,52 @@
 In this file, we will use the full set of data to predict the proxy inflows, outflows, and net flows variables.
 
+Note: ChatGPT was used to generate some base code, but the code below is otherwise the author's own creation. 
+
+Load in packages:
+```{r}
+library(ggplot2)
+library(glmnet)
+library(dplyr)
+```
+
+Load in data:
 ```{r}
 merged_data <- read.csv("/Users/michelle/Documents/thesis/merged_data.csv")
 final_inflow_model <- readRDS("~/Documents/thesis/proxy models/final_inflow_model.rds")
 ```
 
+Removing the December 2017 entries:
 ```{r}
-# Load required libraries
-library(ggplot2)
-library(glmnet)
-library(dplyr)
-
-# Assuming that you already have final_inflow_model and merged_data
-
-# Subset merged_data to include only 2018-2024
 subset_data <- merged_data[merged_data$Year >= 2018 & merged_data$Year <= 2024, ]
+```
 
-# Prepare the data for prediction (select relevant predictors from your data)
+Data handling/prep for the model:
+```{r}
 predictors <- subset_data[, c("Jumush", "Rabota", "log_Jumush", "log_Rabota", 
                               "Work_ratio", "Work_diff", "Jumush_lag", "Rabota_lag",
                               "Jumush_change_pct", "Rabota_change_pct", "Work_ratio_pct", 
                               "t", "t2", "t3", "log_t", "exp_t", "sin_t")]
 
-# Make sure you handle categorical variables such as Region (one-hot encoding needed if not done already)
-# This can be done using the `model.matrix` function if necessary
-
 # If the region is a factor, one-hot encode it:
-region_dummies <- model.matrix(~Region - 1, data = subset_data)  # Remove intercept term
+region_dummies <- model.matrix(~Region - 1, data = subset_data) 
 
 # Combine all predictor data (ensure they match model's features)
 final_predictors <- cbind(predictors, region_dummies)
+```
 
-# Now predict with confidence intervals
-predictions <- predict(final_inflow_model, newx = as.matrix(final_predictors), s = final_inflow_model$lambda, 
-                       type = "response", se.fit = TRUE)
+Predict:
+```{r}
+predictions <- predict(final_inflow_model, newx = as.matrix(final_predictors), s = final_inflow_model$lambda, type = "response", se.fit = TRUE)
+```
 
-# Extract point estimates
-point_estimates <- predictions[, 1]  # First column contains the predicted values
+Extract point estimates:
+```{r}
+point_estimates <- predictions[, 1]
+```
 
-# Plotting the point estimates with color by Region and adding labels for all regions
+Plot point estimates (with and without region labels):
+```{r}
+#Adding labels for all regions
 ggplot(subset_data, aes(x = Year, y = point_estimates)) + 
   geom_line(aes(color = Region)) + 
   labs(title = "Predicted Inflows (2018-2024)", 
@@ -50,7 +58,7 @@ ggplot(subset_data, aes(x = Year, y = point_estimates)) +
 
 ggsave("/Users/michelle/Documents/thesis/predicted_inflows_all_labeled.png", width = 10, height = 7.5, dpi = 300)
 
-# Plotting the point estimates with color by Region and NO labels
+#NO labels
 ggplot(subset_data, aes(x = Year, y = point_estimates)) + 
   geom_line(aes(color = Region)) + 
   labs(title = "Predicted Inflows (2018-2024)", 

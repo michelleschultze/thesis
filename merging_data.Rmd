@@ -1,4 +1,6 @@
-This file merges the various predictors together to prep them for the elastic net.
+This file merges the data for the various predictors together to prep them for the elastic net.
+
+Note: ChatGPT was used to generate some base code, but the code below is otherwise the author's own creation. 
 
 Load in packages:
 ```{r packages}
@@ -13,84 +15,74 @@ Load in data:
 Yandex_keywords_annual <- read_csv("~/Documents/thesis/Search queries data/Yandex Wordstat queries/Yandex_keywords_annual.csv")
 ```
 
-Load in the KGZ migrant data from Rosstat:
+Load in the KGZ migrant data (pulled from Rosstat):
 ```{r}
-library(dplyr)
-library(tidyr)
-library(readxl)
-
-# Step 1: Import the data, skipping the first two rows
 KGZ_migration_flows <- read_excel("~/Documents/thesis/Rosstat_KGZ_migration_flows.xlsx", skip = 2)
+```
 
-# Step 2: Set the first column name as "Region"
+Clean the KGZ migrant data:
+```{r}
+#Handling the data header
 colnames(KGZ_migration_flows)[1] <- "Region"
-
-# Step 3: Extract the third and fourth rows for year and flow types
-# The years are in the third row (after "Region")
-# The flow types are in the fourth row (after "Region")
-years <- as.character(KGZ_migration_flows[1, -1])  # The years are in the third row after the "Region"
-flow_types <- as.character(KGZ_migration_flows[2, -1])  # The flow types are in the fourth row after the "Region"
-
-# Now, drop the first two rows to keep the rest of the data
+years <- as.character(KGZ_migration_flows[1, -1]) 
+flow_types <- as.character(KGZ_migration_flows[2, -1])
 KGZ_migration_flows <- KGZ_migration_flows[-c(1, 2), ]
 
-# Step 4: Reshape the data by gathering and separating year and flow type
+#Long format data
 KGZ_migration_flows <- KGZ_migration_flows %>%
   gather(key = "Year_Flow", value = "Value", -Region) %>%
   separate(Year_Flow, into = c("Year", "Flow_Type"), sep = "_") %>%
   spread(key = "Flow_Type", value = "Value")
 
-# Step 5: View the reshaped dataframe
+#Check structure
 head(KGZ_migration_flows)
 ```
 
-Add transformations on Yandex data:
+Add transformations on Yandex keyword data:
 ```{r}
 Yandex_keywords_annual <- Yandex_keywords_annual %>%
   filter(Year >= 2018) #because December 2017 was included — not comparable
 
-# Step 1: Create the dictionary object for the variables in different languages
-#I'll use this later when adding more keywords, and I'll make the code generalizable to handle as many keywords are needed.
+#Dictionary object for future analysis (after adding more keywords)
 dict <- list(
   "Work" = c("KGZ" = "Jumush", "RUS" = "Rabota", "ENG" = "Work"),
   "Work Contract" = c("KGZ" = "Emgek Kelishimi", "RUS" = "Trudovoi Dogovor", "ENG" = "Work Contract")
 )
 
-# Step 2: Create new variables in Yandex_keywords_annual by looping over the columns
+#Apply transformations on each variable
 Yandex_keywords_annual <- Yandex_keywords_annual %>%
   # Log+1 Transformation
   mutate(across(starts_with("Jumush") | starts_with("Rabota"), ~ log(. + 1), .names = "log_{col}")) %>%
   
-  # Create ratio variables (for words in the dictionary)
+  #Ratio variable
   mutate(
     Work_ratio = ifelse(!is.na(Jumush) & !is.na(Rabota), Jumush / Rabota, NA),
     Work_diff = ifelse(!is.na(Rabota) & !is.na(Jumush), Rabota - Jumush, NA)
   ) %>%
   
-  # Create lagged variables (lagging by 1 year)
+  #Lag
   group_by(Region) %>%
   arrange(Region, Year) %>%
   mutate(
     Jumush_lag = lag(Jumush, 1),
     Rabota_lag = lag(Rabota, 1),
     
-    # Percentage change calculation
+  #Percentage change
     Jumush_change_pct = ifelse(!is.na(Jumush_lag) & Jumush_lag != 0, (Jumush - Jumush_lag) / Jumush_lag * 100, 0),
     Rabota_change_pct = ifelse(!is.na(Rabota_lag) & Rabota_lag != 0, (Rabota - Rabota_lag) / Rabota_lag * 100, 0),
     Work_ratio_pct = ifelse(!is.na(lag(Work_ratio)) & lag(Work_ratio) != 0, (Work_ratio - lag(Work_ratio)) / Work_ratio * 100, 0)
   ) %>%
   ungroup()
 
-# Step 3: View the new dataframe with added variables
+#Check structure
 head(Yandex_keywords_annual)
 ```
 
 Checking region spellings for standardization, and creating a dictionary:
 ```{r}
-head(unique(KGZ_migration_flows$Region))
-head(unique(Yandex_keywords_annual$Region))
+#head(unique(KGZ_migration_flows$Region))
+#head(unique(Yandex_keywords_annual$Region))
 
-#ordered by chatgpt and checked by me
 region_dict <- data.frame(
   Russian = c(
     "Алтайский край", "Амурская область", "Архангельская область", 
@@ -181,18 +173,18 @@ region_dict <- data.frame(
 
 Merge datasets by region and year:
 ```{r}
-# Step 1: Replace Russian region names in KGZ_migration_flows with English names using region_dict
+#Replace Russian region names in KGZ_migration_flows with English names
 KGZ_migration_flows <- KGZ_migration_flows %>%
   left_join(region_dict, by = c("Region" = "Russian")) %>%
   mutate(Region = English) %>%
   select(-English) %>%
   mutate(Year = as.numeric(Year)) 
 
-# Step 3: Merge the cleaned KGZ_migration_flows dataset with Yandex_keywords_annual by Region and Year
+#Merge by region and year
 merged_data <- Yandex_keywords_annual %>%
   left_join(KGZ_migration_flows, by = c("Region", "Year"))
 
-# Step 4: View the merged dataset
+#Check structure
 head(merged_data)
 ```
 

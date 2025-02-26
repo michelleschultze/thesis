@@ -1,0 +1,150 @@
+This file will complete the first regression needed for the flow data: a limited difference-in-difference analysis of the Kyrgyz migrant flows (region-by-year 2021-23) over time.
+
+Of interest:
+- significance and magnitude of the coefficients on time fixed effect dummies --> quantify impact of war onset and continuation
+- selection, significance, and magnitude of covariates --> understand pull factors for kyrgyz migrants to russia
+
+```{r}
+region_year_data <- read_csv("region-year-data.csv") %>%
+  select(-contains("mediazona"), -contains("count_"), -contains("pct_"), -contains("ratio_")) %>%
+#remove yandex trends & mediazona data
+  select(-Outflow, -Netflow) %>%
+  filter(!is.na(Inflow))  # Remove rows where Inflow is NA, if any
+```
+
+Prep by removing NAs
+```{r}
+library(dplyr)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  select(Year, Region, variable)
+
+# View the result
+head(na_data)
+
+#only lag_minwagevalue/lag_log_minwagevalue. Not that important, let's drop them. 
+region_year_data <- region_year_data %>% 
+  select(-lag_minwagevalue, -lag_log_minwagevalue)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  select(Year, Region, variable)
+
+# View the result
+head(na_data) #no NAs left! 
+```
+
+Prep by removing time trends (sample too small) and adding a post-war dummy. 
+```{r}
+region_year_data <- region_year_data %>%
+  # Remove the specified columns
+  select(-c(t2, t3, exp_t, sin_t)) %>%
+  # Add the postwar dummy variable
+  mutate(postwar = if_else(Year >= 2022, 1, 0)) %>%
+  mutate(t = t-1) #t should count up from 2022, not 2021. 
+```
+
+#DID to see changes over time
+
+Run stepwise regression
+```{r}
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("Inflow ~", 
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),
+                            "+ factor(Year) + factor(Region)"))
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Perform stepwise regression using AIC for model selection (both directions)
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# View the summary of the selected model
+summary(stepwise_model)
+capture.output(summary(stepwise_model), file = "1_DID_inflow_analysis_summary.txt")
+```
+
+Jotting down some initial analysis:
+t: 5.546e+02 *  --> indicates that as war continues there are more Kyrgyz migrants flowing into Russia, large effect (~500 migrants per year at regional level)
+all population variables were very impactful. City pop was generally positive and rural pop generally negative.
+a higher minimum wage value was associated with a lower Kyrgyz migrant inflow.
+lagged average nominal gross wages also had a negative association --> lower wage areas 
+postwar dummy not significant, but negative impact expected (~ -250 migrants, somewhat offsetting impact of t)
+Not sig but a selected covariate: change_in_output (+), change_in_real_avg_wages (-), changeinindustrialproduction_mineral_extraction (-), lag_changeinindustrialproduction_water_utilities (-)
+
+#Mediazona casualties (labor substitution analysis)
+We simply add mediazona data back into the mix and see if it is selected and what its coefficients look like. 
+
+```{r}
+region_year_data <- read_csv("region-year-data.csv") %>%
+  select(-contains("count_"), -contains("pct_"), -contains("ratio_")) %>%
+#remove yandex trends but KEEP mediazona
+  select(-Outflow, -Netflow) %>%
+  filter(!is.na(Inflow))  # Remove rows where Inflow is NA, if any
+```
+
+Same as above: Prep by removing NAs
+```{r}
+library(dplyr)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  select(Year, Region, variable)
+
+# View the result
+head(na_data)
+
+#only lag_minwagevalue/lag_log_minwagevalue. Not that important, let's drop them. 
+region_year_data <- region_year_data %>% 
+  select(-lag_minwagevalue, -lag_log_minwagevalue)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  select(Year, Region, variable)
+
+# View the result
+head(na_data) #no NAs left! 
+```
+
+Same as above: Prep by removing time trends (sample too small) and adding a post-war dummy. 
+```{r}
+region_year_data <- region_year_data %>%
+  # Remove the specified columns
+  select(-c(t2, t3, exp_t, sin_t)) %>%
+  # Add the postwar dummy variable
+  mutate(postwar = if_else(Year >= 2022, 1, 0)) %>%
+  mutate(t = t-1) %>% #t should count up from 2022, not 2021. 
+  mutate(interaction_logmediazona_t = log_mediazona*t)
+```
+
+Run stepwise regression, now including mediazona.
+```{r}
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("Inflow ~", 
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),
+                            "+ factor(Year) + factor(Region)"))
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Perform stepwise regression using AIC for model selection (both directions)
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# View the summary of the selected model
+summary(stepwise_model)
+capture.output(summary(stepwise_model), file = "2_mediazona_inflow_analysis_summary.txt")
+```
+
+Initial thoughts:
+mediazona, log_mediazona, and lag_log_mediazona (small) all have significant negative impacts, but lag_mediazona and the interaction with t has a positive impact. These are all significant. 
+This is evidence for a delayed substitution effect, since the lags are more significant, but the war overall driving migrants from Russia back to Kyrgyzstan.
+

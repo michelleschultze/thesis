@@ -15,6 +15,55 @@ Load in data:
 Yandex_keywords_annual <- read_csv("~/Documents/thesis/Search queries data/Yandex Wordstat queries/Yandex_keywords_annual.csv")
 ```
 
+Compute ratios as a final "percent" variable (receieves just a lag rather than log):
+jumush/rabota = ratio of work-related queries in Kyrgyz to Russian
+jumush_izdeim/poisk_raboty = ratio of job search queries in Kyrgyz to Russian
+perevod_deneg_v_kyrgyzstan/perevod_deneg = ratio of money transfer queries to Kyrgyzstan compared to general
+unistream_kyrgyzstan/unistream = ratio of unistream queries to Kyrgyzstan compared to general
+zolotaya_korona_kyrgyzstan/zolotaya_korona = ratio of zolotaya korona queries to Kyrgyzstan compared to general
+ailyk can just mean monthly, not just salary, so we don't need to calculate this
+```{r}
+Yandex_keywords_annual <- Yandex_keywords_annual %>%
+  mutate(ratio_work = count_jumush_sum/count_rabota_sum,
+         ratio_job_search = count_jumush_izdeim_sum/count_poisk_raboty_sum,
+         ratio_money_transfer = count_perevod_deneg_v_kyrgyzstan_sum/count_perevod_deneg_sum,
+         ratio_unistream = count_unistream_kyrgyzstan_sum/count_unistream_sum,
+         ratio_zolotaya_korona = count_zolotaya_korona_kyrgyzstan_sum/count_zolotaya_korona_sum)
+```
+
+Fill in 0s for NAs.
+```{r}
+Yandex_keywords_annual <- Yandex_keywords_annual %>% 
+  # Fill NAs with 0s for all columns
+  mutate(across(everything(), ~replace_na(., 0)))
+```
+
+Add transformations on Yandex keyword data:
+```{r}
+Yandex_keywords_annual <- Yandex_keywords_annual %>%
+  filter(Year >= 2018) #because December 2017 was included — not comparable
+
+Yandex_keywords_annual <- Yandex_keywords_annual %>%
+  mutate(across(.cols = !c(region, Year), 
+                .fns = list(log = ~log(. + 1)), 
+                .names = "{.col}_log"))
+
+Yandex_keywords_annual <- Yandex_keywords_annual %>%
+  mutate(across(.cols = !c(region, Year), 
+                .fns = list(lag = ~lag(.)), 
+                .names = "{.col}_lag")) %>%
+  mutate(Region = region) %>%
+  select(Region, everything(), -region)
+
+Yandex_keywords_annual <- Yandex_keywords_annual %>%
+  select(-(contains("log") & contains("pct"))) %>%
+  select(-(contains("log") & contains("ratio")))
+
+#Check for duplicates
+colnames(Yandex_keywords_annual)[duplicated(colnames(Yandex_keywords_annual))]
+#we're good! 
+```
+
 Load in the KGZ migrant data (pulled from Rosstat):
 ```{r}
 KGZ_migration_flows <- read_excel("~/Documents/thesis/Rosstat_KGZ_migration_flows.xlsx", skip = 2)
@@ -38,45 +87,6 @@ KGZ_migration_flows <- KGZ_migration_flows %>%
 head(KGZ_migration_flows)
 ```
 
-Add transformations on Yandex keyword data:
-```{r}
-Yandex_keywords_annual <- Yandex_keywords_annual %>%
-  filter(Year >= 2018) #because December 2017 was included — not comparable
-
-#Dictionary object for future analysis (after adding more keywords)
-dict <- list(
-  "Work" = c("KGZ" = "Jumush", "RUS" = "Rabota", "ENG" = "Work"),
-  "Work Contract" = c("KGZ" = "Emgek Kelishimi", "RUS" = "Trudovoi Dogovor", "ENG" = "Work Contract")
-)
-
-#Apply transformations on each variable
-Yandex_keywords_annual <- Yandex_keywords_annual %>%
-  # Log+1 Transformation
-  mutate(across(starts_with("Jumush") | starts_with("Rabota"), ~ log(. + 1), .names = "log_{col}")) %>%
-  
-  #Ratio variable
-  mutate(
-    Work_ratio = ifelse(!is.na(Jumush) & !is.na(Rabota), Jumush / Rabota, NA),
-    Work_diff = ifelse(!is.na(Rabota) & !is.na(Jumush), Rabota - Jumush, NA)
-  ) %>%
-  
-  #Lag
-  group_by(Region) %>%
-  arrange(Region, Year) %>%
-  mutate(
-    Jumush_lag = lag(Jumush, 1),
-    Rabota_lag = lag(Rabota, 1),
-    
-  #Percentage change
-    Jumush_change_pct = ifelse(!is.na(Jumush_lag) & Jumush_lag != 0, (Jumush - Jumush_lag) / Jumush_lag * 100, 0),
-    Rabota_change_pct = ifelse(!is.na(Rabota_lag) & Rabota_lag != 0, (Rabota - Rabota_lag) / Rabota_lag * 100, 0),
-    Work_ratio_pct = ifelse(!is.na(lag(Work_ratio)) & lag(Work_ratio) != 0, (Work_ratio - lag(Work_ratio)) / Work_ratio * 100, 0)
-  ) %>%
-  ungroup()
-
-#Check structure
-head(Yandex_keywords_annual)
-```
 
 Checking region spellings for standardization, and creating a dictionary:
 ```{r}
@@ -192,13 +202,15 @@ Add time trends:
 ```{r}
 merged_data <- merged_data %>%
   mutate(
-    t = Year - min(Year) + 1,  # Normalize t to start from 1
+    t = Year - 2021 + 1,  # Normalize t to start from 1, with 2021 as the start year (we'll do our analysis only using 2021-24 data)
     t2 = t^2,
     t3 = t^3,
-    log_t = log(t),
     exp_t = exp(t),
     sin_t = sin(t)
   )
+
+merged_data %>%
+  select(t, t2, t3, sin_t, exp_t)
 ```
 
 Export:

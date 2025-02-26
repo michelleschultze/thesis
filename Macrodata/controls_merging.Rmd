@@ -1,5 +1,7 @@
 This file will merge together the region-year and region-month data by extracting it from several data files. 
 
+Used ChatGPT to speed the process of managing so many different data formats. 
+
 Load in packages
 ```{r}
 library(readxl)
@@ -10,6 +12,8 @@ library(zoo)
 library(stringr)
 library(lubridate)
 library(tidyverse)
+
+setwd("/Users/michelle/Documents/thesis")
 ```
 
 ##Set up region dictionary (standardizing names)
@@ -102,7 +106,9 @@ region_dict <- data.frame(
 )
 ```
 
-##Change in real avg wages from previous year (2018-2023)
+##Easy imports (already year-by-region)
+
+###Change in real avg wages from previous year (2018-2023)
 ```{r}
 data_changeinrealavgwages <- read_excel("Macrodata/Raw macrodata/region-year_rosstat_changeinrealavgwages.xlsx", 
                                                        sheet = "с 2018", 
@@ -150,9 +156,19 @@ data_changeinrealavgwages <- data_changeinrealavgwages %>%
 unmatched_regions <- data_changeinrealavgwages %>%
   filter(!(Region %in% region_dict$English))
 print(unmatched_regions) #Success!
+
+# Pivot the data to long format
+data_changeinrealavgwages <- data_changeinrealavgwages %>%
+  pivot_longer(cols = starts_with("20"),  # Select all columns that start with "20"
+               names_to = "Year",  # Name of the new column with the years
+               values_to = "change_in_real_avg_wages") %>%
+  mutate(Year = as.numeric(Year))  # Ensure the Year column is numeric
+
+# View the pivoted data
+head(data_changeinrealavgwages)
 ```
 
-##Poverty rate (2018-2023)
+###Poverty rate (2018-2023)
 ```{r}
 data_povertyrate <- read_excel("Macrodata/Raw macrodata/region-year_rosstat_povertyrate.xlsx", 
     sheet = "по РФ и субъектам РФ 2018-2023", 
@@ -202,9 +218,19 @@ data_povertyrate <- data_povertyrate %>%
 unmatched_regions <- data_povertyrate %>%
   filter(!(Region %in% region_dict$English))
 print(unmatched_regions) #Success!
+
+# Pivot the data to long format
+data_povertyrate <- data_povertyrate %>%
+  pivot_longer(cols = starts_with("20"),  # Select all columns that start with "20"
+               names_to = "Year",  # Name of the new column with the years
+               values_to = "poverty_rate") %>%
+  mutate(Year = as.numeric(Year))  # Ensure the Year column is numeric
+
+# View the pivoted data
+head(data_povertyrate)
 ```
 
-##Year-on-year percentage change in economic output ("index") (2018-2024)
+###Year-on-year percentage change in economic output ("index") (2018-2024)
 ```{r}
 data_changeinoutput <- read_excel("Macrodata/Raw macrodata/region-month_rosstat_2022-24_output.xlsx", 
     sheet = "3", skip = 2)
@@ -237,9 +263,108 @@ data_changeinoutput <- data_changeinoutput %>%
 unmatched_regions <- data_changeinoutput %>%
   filter(!(Region %in% region_dict$English))
 print(unmatched_regions) #Success!
+
+# Pivot the data to long format
+data_changeinoutput[[2]] <- as.numeric(data_changeinoutput[[2]])
+
+data_changeinoutput <- data_changeinoutput %>%
+  pivot_longer(cols = starts_with("20"),  # Select all columns that start with "20"
+               names_to = "Year",  # Name of the new column with the years
+               values_to = "change_in_output") %>%
+  mutate(Year = as.numeric(Year))  # Ensure the Year column is numeric
+
+# View the pivoted data
+head(data_changeinoutput)
 ```
 
-##Industrial output indices
+###Value of minimum wage for working population (2021-25)
+```{r}
+data_minwagevalue <- read_excel("Macrodata/Raw macrodata/region-year-value_of_min_wage.xlsx")
+
+data_minwagevalue <- data_minwagevalue %>%
+  rename(Region = 1) %>%
+  filter(grepl("область|край|республика|Республика|Москва|Петербург|округ", Region))
+
+#Test what doesn't match dictionary
+x <- data_minwagevalue %>%
+  filter(!(Region %in% region_dict$Russian))
+x$Region
+
+#Prep to standardize
+data_minwagevalue <- data_minwagevalue %>%
+  mutate(Region = case_when(
+    Region == "г. Москва" ~ "г.Москва",
+    Region == "г. Санкт-Петербург" ~ "г.Санкт-Петербург",
+    Region == "Архангельская область1)" ~ "Архангельская область",
+    Region == "Hенецкий авт.округ" ~ "Ненецкий автономный округ",
+    Region == "Архангельская область без авт. округа" ~ "Архангельская область                       без автономного округа",
+    Region == "Республика Северная Осетия- Алания" ~ "Республика Северная Осетия-Алания",
+    Region == "Hижегородская область" ~ "Нижегородская область",
+    Region == "Тюменская область1)" ~ "Тюменская область",
+    Region == "Ханты-Мансийский авт.округ-Югра" ~ "Ханты-Мансийский автономный                 округ-Югра",
+    Region == "Ямало-Hенецкий авт.округ" ~ "Ямало-Ненецкий автономный округ",
+    Region == "Тюменская область без авт. округов" ~ "Тюменская область                             без автономных округов",
+    Region == "Чукотский авт.округ" ~ "Чукотский автономный округ",
+    TRUE ~ Region
+  ))
+
+#Ready to standardize names
+data_minwagevalue <- data_minwagevalue %>%
+  left_join(region_dict, by = c("Region" = "Russian")) %>%
+  mutate(Region = ifelse(is.na(English), Region, English)) %>%
+  select(-English)  # Remove the extra column after replacement
+
+unmatched_regions <- data_minwagevalue %>%
+  filter(!(Region %in% region_dict$English))
+print(unmatched_regions) #Success!
+
+# Pivot the data to long format
+data_minwagevalue[, 2:ncol(data_minwagevalue)] <- lapply(data_minwagevalue[, 2:ncol(data_minwagevalue)], as.numeric)
+
+data_minwagevalue <- data_minwagevalue %>%
+  pivot_longer(cols = starts_with("20"),  # Select all columns that start with "20"
+               names_to = "Year",  # Name of the new column with the years
+               values_to = "minwagevalue") %>%
+  mutate(Year = as.numeric(Year))  # Ensure the Year column is numeric
+
+#Arkangelskaya oblast doesn't have any data for some reason. Carry over the "without autonomous okrug" values
+data_minwagevalue <- data_minwagevalue %>%
+  group_by(Year) %>%
+  mutate(minwagevalue = if_else(Region == "Arkhangel'skaya Oblast'" & is.na(minwagevalue), 
+                                minwagevalue[Region == "Arkhangelskaya Oblast without Autonomous Okrug"], 
+                                minwagevalue)) %>%
+  mutate(minwagevalue = if_else(Region == "Tyumen Oblast" & is.na(minwagevalue), 
+                                minwagevalue[Region == "Tyumen Oblast without Autonomous Okrugs"], 
+                                minwagevalue)) %>%
+  ungroup()
+```
+
+###Handle missing data
+
+###Mediazona casualty data (2022-24)
+```{r}
+data_mediazona <- read_excel("Macrodata/Mediazona.xlsx", 
+    sheet = "Region-by-year")
+
+data_mediazona <- data_mediazona %>%
+  pivot_longer(cols = -Period,  # Select all columns that start with "20"
+               names_to = "Region",  # Name of the new column with the years
+               values_to = "mediazona") %>%
+  mutate(Year = as.numeric(Period)) %>% # Ensure the Year column is numeric
+  select(-Period)
+
+#Test what doesn't match dictionary
+x <- data_changeinoutput %>%
+  filter(!(Region %in% region_dict$English))
+x$Region
+#perfect (by construction√)
+
+# View the pivoted data
+head(data_mediazona)
+```
+
+
+##Industrial output indices (2015-2014, monthly)
 
 ###Load the data in (loop over 5 sheets, merge years/months, clean)
 ```{r}
@@ -399,28 +524,283 @@ for (sheet_name in names(cleaned_data_list)) {
 # Step 4: Merge all the data into a single dataset
 # We'll perform a full join on the common columns "Region" and "Month_Year"
 final_data_merged <- reduce(final_data, full_join, by = c("Region", "Month_Year")) %>%
-  mutate(Month_Year_display = format(Month_Year, "%B %Y"))
+  mutate(changeinindustrialproduction_all = Sheet_1,
+         changeinindustrialproduction_mineral_extraction = Sheet_4,
+         changeinindustrialproduction_manufacturing = Sheet_7,
+         changeinindustrialproduction_electricity_utilities = Sheet_10,
+         changeinindustrialproduction_water_utilities = Sheet_13
+         ) %>%
+  select(-Sheet_1, -Sheet_4, -Sheet_7, -Sheet_10, -Sheet_13)
+```
 
-# View the final merged dataset
-head(final_data_merged)
+###Annualize
+```{r}
+#Export a clean monthly version for potential later use
+write_csv(final_data_merged, "Macrodata/Cleaned macrodata (intermediate)/monthly_changeinindustrialproduction.csv")
+
+#Aggregate to annual level by taking the december value
+#unit is increase since the same month in the previous year, so this is an annual increase.
+data_changeinindustrialproduction <- final_data_merged %>%
+  # Extract the year and month from the Month_Year column
+  mutate(Year = lubridate::year(Month_Year), Month = lubridate::month(Month_Year)) %>%
+  # Filter for December (Month == 12)
+  filter(Month == 12) %>%
+  # Select the necessary columns
+  select(Region, Year, starts_with("changeinindustrialproduction")) %>%
+  # Ungroup to remove grouping
+  ungroup()
+
+# Replace "-" with 100 in the column 'changeinindustrialproduction_mineral_extraction'
+data_changeinindustrialproduction <- data_changeinindustrialproduction %>%
+  mutate(changeinindustrialproduction_mineral_extraction = as.numeric(changeinindustrialproduction_mineral_extraction),
+         changeinindustrialproduction_mineral_extraction = 
+           if_else(is.na(changeinindustrialproduction_mineral_extraction), 
+                   100, 
+                   changeinindustrialproduction_mineral_extraction))
+#represents moscow, which doesn't have mineral extraction and is an NA. 
+
+head(data_changeinindustrialproduction)
+```
+
+##Population
+```{r}
+library(readxl)
+library(dplyr)
+library(stringr)
+
+# Define file path
+file_path <- "Macrodata/Raw macrodata/region-year_Daria_population.xlsx"
+
+# Get sheet names (years)
+sheet_names <- excel_sheets(file_path)
+
+# Function to read and process each sheet
+read_population_data <- function(sheet) {
+  data <- read_excel(file_path, sheet = sheet, col_names = TRUE) %>%
+    filter(str_detect(Region, "область|край|республика|Республика|Москва|Петербург|автономный")) %>%
+    mutate(Year = as.numeric(sheet)) # Convert sheet name to Year
+  
+  return(data)
+}
+
+# Import and combine all sheets
+population_data <- bind_rows(lapply(sheet_names, read_population_data))
+
+# Reshape the data so that each row is a region-year observation
+population_data_clean <- population_data %>%
+  select(-`...1`) %>%  # Remove unnecessary column
+  relocate(Year, .after = Region)  # Ensure Year comes right after Region
+
+# View the first few rows
+head(population_data_clean)
+```
+
+###Translate the regions
+```{r}
+population_data_clean %>%
+  filter(!(Region %in% region_dict$Russian)) %>%
+  distinct(Region)
+
+# Standardize region names
+population_data_clean <- population_data_clean %>%
+  mutate(Region = case_when(
+    Region == "г. Москва" ~ "г.Москва",
+    Region == "г. Санкт-Петербург - город федерального значения" ~ "г.Санкт-Петербург",
+    Region == "Архангельская область без авт. округа" ~ "Архангельская область",
+    Region == "Архангельская область, включая Ненецкий автономный округ" ~ "Архангельская область",
+    Region == "Тюменская область включая автономные округа" ~ "Тюменская область",
+    Region == "Тюменская область без автономных округов" ~ "Тюменская область                             без автономных округов",
+    Region == "Ханты-Мансийский автономный округ - Югра" ~ "Ханты-Мансийский автономный                 округ-Югра",
+    Region == "Город федерального значения - г. Санкт-Петербург" ~ "г.Санкт-Петербург",
+    Region == "Город федерального значения - г. Москва" ~ "г.Москва",
+    Region == "г. Москва - город федерального значения" ~ "г.Москва",
+    Region == "Архангельская область без Ненецкого автономного округа" ~ "Архангельская область                       без автономного округа",
+    Region == "Тюменская область (кроме Ханты-Мансийского автономного округа - Югры и Ямало-Ненецкого автономного округа)" ~ "Тюменская область                             без автономных округов",
+    Region == "Кемеровская область - Кузбасс" ~ "Кемеровская область",
+    Region == "г Москва - город федерального значения" ~ "г.Москва",
+    Region == "г Санкт-Петербург - город федерального значения" ~ "г.Санкт-Петербург",
+    TRUE ~ Region
+  ))
+
+region_dict %>%
+  filter(!(Russian %in% population_data_clean$Region))
+#great, we don't need the federal okrug data, and Sevastopol is Ukrainian 
+
+# Check for duplicates
+population_data_clean %>%
+  group_by(Region, Year) %>%
+  filter(n()>1) 
+#same, just keep the first occurrence 
+population_data_clean <- population_data_clean %>%
+  distinct(Region, Year, .keep_all = TRUE)
+
+# Standardize names using the dictionary
+population_data_clean <- population_data_clean %>%
+  left_join(region_dict, by = c("Region" = "Russian")) %>%
+  mutate(Region = ifelse(is.na(English), Region, English)) %>%
+  select(-English)  # Remove the extra column after replacement
+
+# Check if any regions are still unmatched
+unmatched_regions <- population_data_clean %>%
+  filter(!(Region %in% region_dict$English))
+print(unmatched_regions)  # Should return an empty tibble if successful
+
+# View the cleaned data
+head(population_data_clean)
+
+data_population <- population_data_clean
+```
+
+###Handle NAs
+```{r}
+# Replace NA with 0 in the column 'rural_pop'
+data_population <- data_population %>%
+  mutate(rural_pop = 
+           if_else(is.na(rural_pop), 
+                   0, 
+                   rural_pop))
+#represents cites, which don't have rural population and would be an NA. 
+```
+
+##Average wages (2012-2024, monthly)
+```{r}
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+
+# Step 1: Read the data
+data_avgwages <- read_excel("/Users/michelle/Documents/thesis/Macrodata/Raw macrodata/region-month_rosstat_avgwages.xlsx", sheet = 1)
+
+# Step 2: Extract the month names from the second row and the years from the column names
+months <- data_avgwages[1, -1]  # Remove the first column (Region column)
+years <- colnames(data_avgwages)[-1]  # Remove the first column (Region column)
+years <- sub("\\.\\.\\..*", "", years)
+
+# Step 3: Clean up the data
+data_clean <- data_avgwages[-1, ]  # Remove the first two rows
+colnames(data_clean) <- c("Region", paste(months, years, sep = "-"))  # Assign month names as column names
+data_clean <- pivot_longer(data_clean, cols = -Region, names_to = "Month", values_to = "avg_nominal_gross_wages")
+
+data_clean <- data_clean %>%
+  mutate(Date = dmy(paste0("01-", Month))) %>%  # Convert to date format
+  select(Region, Date, avg_nominal_gross_wages)
+```
+
+###Translate the regions
+```{r}
+data_clean %>%
+  filter(!(Region %in% region_dict$Russian)) %>%
+  distinct(Region)
+
+# Standardize region names
+data_clean <- data_clean %>%
+  mutate(Region = case_when(
+    Region == "Архангельская область без авт. округа." ~ "Архангельская область                       без автономного округа",
+    Region == "Тюменская область без авт. округов" ~ "Тюменская область                             без автономных округов",
+    Region == "Республика Северная  Осетия - Алания" ~ "Республика Северная Осетия-Алания",
+    Region == "Ямало-Ненецкий авт. округ" ~ "Ямало-Ненецкий автономный округ",
+    Region == "Еврейская авт.область" ~ "Еврейская автономная область",
+    Region == "Чукотский авт.округ" ~ "Чукотский автономный округ",
+    Region == "Ханты-Мансийский  авт. округ - Югра" ~ "Ханты-Мансийский автономный                 округ-Югра",
+    Region == "Российская Федерация" ~ "Russian Federation",
+    TRUE ~ Region
+  ))
+
+region_dict %>%
+  filter(!(Russian %in% data_clean$Region))
+
+# Check for duplicates
+data_clean %>%
+  group_by(Region, Date) %>%
+  filter(n()>1) 
+
+# Standardize names using the dictionary
+data_clean <- data_clean %>%
+  left_join(region_dict, by = c("Region" = "Russian")) %>%
+  mutate(Region = ifelse(is.na(English), Region, English)) %>%
+  select(-English) # Remove the extra column after replacement
+
+# Check if any regions are still unmatched
+unmatched_regions <- data_clean %>%
+  filter(!(Region %in% region_dict$English)) %>%
+  distinct(Region)
+print(unmatched_regions)  # Should return an empty tibble if successful
+
+# View the cleaned data
+head(data_clean)
+
+data_avgnominalgrosswages <- data_clean
+```
+
+###Annualize
+```{r}
+#Export a clean monthly version for potential later use
+write_csv(data_avgnominalgrosswages, "Macrodata/Cleaned macrodata (intermediate)/monthly_avgnominalgrosswages.csv")
+
+data_avgnominalgrosswages <- data_avgnominalgrosswages %>%
+  mutate(avg_nominal_gross_wages = as.numeric(avg_nominal_gross_wages)) %>%
+  mutate(Year = year(Date)) %>%  # Extract year from Date column
+  group_by(Region, Year) %>%
+  summarise(avg_nominal_gross_wages = mean(avg_nominal_gross_wages, na.rm = TRUE), .groups = "drop")  # Annualize by averaging
+
+head(data_avgnominalgrosswages)
 ```
 
 
-#Merge data 
+#Merge data to existing flows/yandex dataframe
 
-##All sets imported: 
-data_changeinindustrialproduction$total (region/month, 2015-24)
-data_changeinindustrialproduction$mineral_extraction (region/month, 2015-24)
-data_changeinindustrialproduction$manufacturing (region/month, 2015-24)
-data_changeinindustrialproduction$electricity_utilities (region/month, 2015-24)
-data_changeinindustrialproduction$water_utilities (region/month, 2015-24)
+##All sets imported and standardized (*=aggregated): 
 data_povertyrate (region/year, 2018-23)
 data_changeinoutput (region/year, 2018-23)
 data_changeinrealavgwages (region/year, 2018-23)
+data_minwagevalue (region/year, 2021-25)
+data_mediazona (region/year, 2022-24)
+data_changeinindustrialproduction (region/year*, 2015-24)
+data_population (region/year*, 2013-24)
+data_avgnominalgrosswages (region/year*, 2013-24)
 
-##into a region-year set, 2022-23, vars wide and time/region long 
-(matches inflows data for first two regressions)
 ```{r}
+merged_data <- read_csv("merged_data.csv")
 
+merged_data %>%
+  filter(!(Region %in% region_dict$English)) %>%
+  distinct(Region) #ready to go
+
+merged_data <- merged_data %>%
+  left_join(data_povertyrate, by = c("Region", "Year")) %>%
+  left_join(data_changeinoutput, by = c("Region", "Year")) %>%
+  left_join(data_changeinrealavgwages, by = c("Region", "Year")) %>%
+  left_join(data_minwagevalue, by = c("Region", "Year")) %>%
+  left_join(data_mediazona, by = c("Region", "Year")) %>%
+  left_join(data_changeinindustrialproduction, by = c("Region", "Year")) %>%
+  left_join(data_population, by = c("Region", "Year")) %>%
+  left_join(data_avgnominalgrosswages, by = c("Region", "Year"))
+
+#handle NAs for mediazona
+merged_data$mediazona[is.na(merged_data$mediazona)] <- 0
+
+merged_data <- merged_data %>%
+  mutate(log_minwagevalue = log1p(minwagevalue),
+         log_mediazona = log1p(mediazona),
+         log_total_pop = log1p(total_pop),
+         log_city_pop = log1p(city_pop),
+         log_rural_pop = log1p(rural_pop),
+         log_avg_nominal_gross_wages = log1p(avg_nominal_gross_wages))
+
+merged_data <- merged_data %>%
+  mutate(across(.cols = 172:ncol(merged_data),  # Select columns starting from column 172
+                .fns = list(lag = ~lag(.)),      # Apply lag function
+                .names = "lag_{.col}"))          # Name the new column as lag_[variablename]
+
+unique_years <- unique(merged_data$Year)
+print(unique_years)
+
+
+```
+
+##Export finally!
+```{r}
+write.csv(merged_data, "region-year-data.csv", row.names = FALSE)
 ```
 

@@ -1,0 +1,54 @@
+Import and merge GT data
+Tuesday, February 25 2025
+
+This file will import the manually downloaded GT data, merge into a monthly series, and export (for later additions of covariates).
+
+- - - - - - - - - - - - - - - - - - - -
+
+```{r}
+library(dplyr)
+library(readr)
+library(stringr)
+
+# Define the directory containing the GT data
+data_dir <- "/Users/michelle/Documents/thesis/Search queries data/GT data/raw keyword data"
+
+# List all CSV files in the directory
+files <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+
+# Initialize an empty list to store the dataframes
+data_list <- list()
+
+# Loop through each file, read the data, and process it
+for (file in files) {
+  # Extract the keyword (filename without extension) for the column name
+  keyword <- basename(file) %>% str_remove(".csv")
+  
+  # Read the CSV file
+  temp_df <- read_csv(file, skip = 1)  # Assuming the first row is not part of the actual data
+  
+  # Rename the columns: 'Month' and 'Frequency'
+  colnames(temp_df) <- c("Month", keyword)
+  
+  # Clean up the 'Month' column to ensure it's in a proper date format
+  temp_df$Month <- ym(temp_df$Month)
+  
+  # Group by 'Month' and summarize by taking the sum of frequencies (or use mean if needed)
+  temp_df <- temp_df %>%
+    group_by(Month) %>%
+    summarise(across(starts_with(keyword), mean, na.rm = TRUE))
+  
+  # Add this dataframe to the list
+  data_list[[keyword]] <- temp_df
+}
+
+# Merge all the dataframes in the list by the 'Month' column
+merged_df <- Reduce(function(x, y) full_join(x, y, by = "Month"), data_list)
+
+# View the merged dataframe
+head(merged_df)
+
+# Save the merged dataframe to a CSV file (optional)
+write_csv(merged_df, "/Users/michelle/Documents/thesis/Search queries data/GT data/merged_gt_data.csv")
+```
+

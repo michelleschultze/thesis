@@ -198,21 +198,6 @@ merged_data <- Yandex_keywords_annual %>%
 head(merged_data)
 ```
 
-Add time trends:
-```{r}
-merged_data <- merged_data %>%
-  mutate(
-    t = Year - 2021 + 1,  # Normalize t to start from 1, with 2021 as the start year (we'll do our analysis only using 2021-24 data)
-    t2 = t^2,
-    t3 = t^3,
-    exp_t = exp(t),
-    sin_t = sin(t)
-  )
-
-merged_data %>%
-  select(t, t2, t3, sin_t, exp_t)
-```
-
 Export:
 ```{r}
 write.csv(merged_data, "/Users/michelle/Documents/thesis/merged_data.csv", row.names = FALSE)

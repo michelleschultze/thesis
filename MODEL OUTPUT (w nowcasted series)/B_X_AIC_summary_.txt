@@ -1,31 +1,28 @@
 
 Call:
-lm(formula = log1p(Inflow) ~ changeinindustrialproduction_all + 
-    changeinindustrialproduction_manufacturing + log_total_pop + 
-    log_rural_pop + log_avg_nominal_gross_wages + lag_changeinindustrialproduction_mineral_extraction + 
-    lag_changeinindustrialproduction_electricity_utilities + 
-    war + postwar, data = region_year_data)
+lm(formula = log1p(Inflow) ~ log_total_pop + log_city_pop + log_rural_pop + 
+    log_avg_nominal_gross_wages + lag_changeinindustrialproduction_water_utilities + 
+    lag_log_total_pop + war + postwar, data = region_year_data)
 
 Residuals:
-     Min       1Q   Median       3Q      Max 
--10.6937  -0.9916   0.4797   1.3914   4.8947 
+    Min      1Q  Median      3Q     Max 
+-4.5365 -0.5283  0.0607  0.7374  4.2511 
 
 Coefficients:
-                                                        Estimate Std. Error t value Pr(>|t|)    
-(Intercept)                                            -63.52526    4.11112 -15.452  < 2e-16 ***
-changeinindustrialproduction_all                         2.54333    0.99969   2.544 0.011270 *  
-changeinindustrialproduction_manufacturing              -2.29985    0.77285  -2.976 0.003071 ** 
-log_total_pop                                            1.24009    0.10924  11.351  < 2e-16 ***
-log_rural_pop                                            0.20484    0.05496   3.727 0.000217 ***
-log_avg_nominal_gross_wages                              4.42408    0.31924  13.858  < 2e-16 ***
-lag_changeinindustrialproduction_mineral_extraction     -0.36070    0.23550  -1.532 0.126271    
-lag_changeinindustrialproduction_electricity_utilities   0.85584    0.58895   1.453 0.146836    
-war                                                      1.37688    0.36580   3.764 0.000188 ***
-postwar                                                 -0.90140    0.16419  -5.490 6.55e-08 ***
+                                                  Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                                      -30.92936    2.83409 -10.913  < 2e-16 ***
+log_total_pop                                      9.53166    3.18520   2.992 0.002911 ** 
+log_city_pop                                       1.12223    0.36261   3.095 0.002085 ** 
+log_rural_pop                                      0.12079    0.03305   3.655 0.000286 ***
+log_avg_nominal_gross_wages                        2.45708    0.21824  11.258  < 2e-16 ***
+lag_changeinindustrialproduction_water_utilities  -0.53911    0.15466  -3.486 0.000536 ***
+lag_log_total_pop                                 -9.93513    3.29564  -3.015 0.002710 ** 
+war                                               -0.40508    0.21607  -1.875 0.061434 .  
+postwar                                           -0.32380    0.09763  -3.317 0.000981 ***
 ---
 Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 
-Residual standard error: 2.004 on 476 degrees of freedom
-Multiple R-squared:  0.4641,	Adjusted R-squared:  0.454 
-F-statistic:  45.8 on 9 and 476 DF,  p-value: < 2.2e-16
+Residual standard error: 1.181 on 477 degrees of freedom
+Multiple R-squared:  0.5144,	Adjusted R-squared:  0.5063 
+F-statistic: 63.17 on 8 and 477 DF,  p-value: < 2.2e-16
 

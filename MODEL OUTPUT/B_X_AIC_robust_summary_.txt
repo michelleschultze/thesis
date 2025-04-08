@@ -2,19 +2,19 @@
 t test of coefficients:
 
                                                          Estimate Std. Error t value  Pr(>|t|)    
-(Intercept)                                            -37.327314   4.744772 -7.8670  1.41e-13 ***
-change_in_real_avg_wages                                 5.858416   2.554781  2.2931 0.0227445 *  
-changeinindustrialproduction_all                        -1.105947   0.518503 -2.1330 0.0339872 *  
-changeinindustrialproduction_electricity_utilities      -0.851764   0.425420 -2.0022 0.0464408 *  
-log_total_pop                                           10.162722   3.186173  3.1896 0.0016229 ** 
-log_rural_pop                                            0.095119   0.032778  2.9019 0.0040697 ** 
-log_avg_nominal_gross_wages                              2.651566   0.290134  9.1391 < 2.2e-16 ***
-lag_changeinindustrialproduction_manufacturing          -0.734181   0.375140 -1.9571 0.0515470 .  
-lag_changeinindustrialproduction_electricity_utilities  -0.919304   0.483441 -1.9016 0.0584752 .  
-lag_changeinindustrialproduction_water_utilities        -0.428875   0.243371 -1.7622 0.0793585 .  
-lag_log_total_pop                                       -9.331608   3.217724 -2.9001 0.0040924 ** 
-war                                                      0.811950   0.421374  1.9269 0.0552228 .  
-postwar                                                 -1.045875   0.298786 -3.5004 0.0005578 ***
+(Intercept)                                            -37.327314   5.172324 -7.2167 7.677e-12 ***
+change_in_real_avg_wages                                 5.858416   2.824531  2.0741  0.039181 *  
+changeinindustrialproduction_all                        -1.105947   0.578328 -1.9123  0.057078 .  
+changeinindustrialproduction_electricity_utilities      -0.851764   0.485674 -1.7538  0.080801 .  
+log_total_pop                                           10.162722   3.493213  2.9093  0.003978 ** 
+log_rural_pop                                            0.095119   0.040771  2.3330  0.020510 *  
+log_avg_nominal_gross_wages                              2.651566   0.314266  8.4373 3.633e-15 ***
+lag_changeinindustrialproduction_manufacturing          -0.734181   0.412443 -1.7801  0.076383 .  
+lag_changeinindustrialproduction_electricity_utilities  -0.919304   0.574313 -1.6007  0.110816    
+lag_changeinindustrialproduction_water_utilities        -0.428875   0.290633 -1.4757  0.141402    
+lag_log_total_pop                                       -9.331608   3.527621 -2.6453  0.008725 ** 
+war                                                      0.811950   0.457461  1.7749  0.077236 .  
+postwar                                                 -1.045875   0.331317 -3.1567  0.001809 ** 
 ---
 Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 

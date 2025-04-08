@@ -10,8 +10,8 @@ library(readr)
 ```
 
 ```{r}
-region_year_data <- read_csv("region-year-data.csv") %>%
-  select(-contains("count_"), -contains("pct_"), -contains("ratio_")) %>%
+region_year_data <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  dplyr::select(-contains("count_"), -contains("pct_"), -contains("ratio_")) %>%
 #remove yandex trends
   filter(!is.na(Inflow))  # Remove rows where Inflow is NA, if any
 ```
@@ -48,7 +48,7 @@ library(dplyr)
 na_data <- region_year_data %>%
   tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
   filter(is.na(value)) %>%
-  select(Year, Region, variable)
+  dplyr::select(Year, Region, variable)
 
 # View the result
 head(na_data) #No NAs left!
@@ -72,10 +72,10 @@ output_directory <- "/Users/michelle/Documents/thesis/MODEL OUTPUT"
 
 ```{r}
 region_year_data_copy <- region_year_data %>%
-  select(-mediazona) #needs to be logged only
+  dplyr::select(-mediazona) #needs to be logged only
 region_year_data <- region_year_data %>%
-  select(-Outflow, -Netflow) %>%
-  select(-contains("mediazona"))
+  dplyr::select(-Outflow, -Netflow) %>%
+  dplyr::select(-contains("mediazona"))
 ```
 
 ## A_X: No fixed effects (not really functional due to lack of predictors)
@@ -93,7 +93,7 @@ formula <- as.formula(paste("log1p(Inflow) ~ ",   # Remove the intercept with "0
 full_model <- lm(formula, data = region_year_data)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(full_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
@@ -155,7 +155,7 @@ formula <- as.formula(paste("log1p(Inflow) ~ 0 +",   # Remove the intercept with
 full_model <- lm(formula, data = region_year_data)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(full_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
@@ -241,7 +241,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -313,7 +313,7 @@ library(lmtest)    # For coeftest function
 
 # Prepare the data (remove unwanted columns)
 region_year_data <- region_year_data %>% 
-  select(-contains("mediazona"))
+  dplyr::select(-contains("mediazona"))
 
 # Create the formula for the model (Inflow as the dependent variable)
 formula <- as.formula(paste("log1p(Inflow) ~ ",  
@@ -326,7 +326,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -406,7 +406,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -478,7 +478,7 @@ library(lmtest)    # For coeftest function
 
 # Prepare the data (remove unwanted columns)
 region_year_data <- region_year_data %>% 
-  select(-contains("mediazona"))
+  dplyr::select(-contains("mediazona"))
 
 # Create the formula for the model (Inflow as the dependent variable)
 formula <- as.formula(paste("log1p(Inflow) ~ ",  
@@ -491,7 +491,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -560,7 +560,7 @@ We simply add mediazona data back into the mix and see if it is selected and wha
 
 ```{r prep}
 region_year_data <- region_year_data_copy %>%
-  select(-Outflow, -Netflow)
+  dplyr::select(-Outflow, -Netflow)
 ```
 
 ##C_X_BIC: NO fixed effects + BIC
@@ -580,7 +580,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -660,7 +660,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -739,7 +739,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -819,7 +819,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -888,17 +888,25 @@ cat("Non-selected covariates saved to:", non_selected_file, "\n")
 #D: extended time series! 
 
 ```{r}
-extended_time_series_flows <- read_csv("Nowcast output (Inflows)/extended_time_series_flows.csv") %>%
+extended_time_series_flows <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_inflows_noeconomiccovariates.csv") %>%
   mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .)))
-region_year_data <- read_csv("region-year-data.csv") %>%
+
+region_year_data <- read_csv("/Users/michelle/Documents/thesis/region-year-data.csv") %>%
   filter(Year > 2018) %>%
-  select(-Inflow) %>%
-  select(-contains("count_"), -contains("pct_"), -contains("ratio_")) 
-region_year_data['Inflow'] <- extended_time_series_flows['Fitted Values']
+  dplyr::select(-contains("count_"), -contains("pct_"), -contains("ratio_"))
+
+# Retain actual Inflow data where available, otherwise use nowcasted values
+region_year_data <- region_year_data %>%
+  left_join(extended_time_series_flows %>% dplyr::select(Year, Region, `Fitted Values`), 
+            by = c("Year", "Region")) %>%
+  mutate(Inflow = coalesce(Inflow, `Fitted Values`)) %>%
+  dplyr::select(-`Fitted Values`, -Outflow, -Netflow)
 ```
 
 Drop unnecessary variables, /100 for percentage variables that haven't gotten that treatment already.
 ```{r}
+library(tidyr)
+
 # Drop columns that need log transformation therefore we cannot include with levels
 region_year_data <- region_year_data[, !(names(region_year_data) %in% c("minwagevalue", "total_pop", "city_pop", "rural_pop", "avg_nominal_gross_wages", "lag_total_pop", "lag_city_pop", "lag_rural_pop", "lag_avg_nominal_gross_wages"))]
 
@@ -920,7 +928,7 @@ region_year_data %>%
   filter(NA_Count > 0)
 
 # Remove columns with missing first observations
-region_year_data <- region_year_data[, !(names(region_year_data) %in% c("lag_minwagevalue", "lag_log_minwagevalue", "Netflow", "Outflow", "poverty_rate", "change_in_real_avg_wages", "log_minwagevalue", "lag_log_minwagevalue"))]
+region_year_data <- region_year_data[, !(names(region_year_data) %in% c("poverty_rate", "change_in_real_avg_wages", "log_minwagevalue", "lag_log_minwagevalue"))]
 
 # Keep the original columns as-is (this part is already implicitly handled by not applying any transformation to the specified columns)
 # You don't need to do anything for columns like "Region", "Year", "Inflow", "poverty_rate", etc.
@@ -934,13 +942,13 @@ library(dplyr)
 na_data <- region_year_data %>%
   tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
   filter(is.na(value)) %>%
-  select(Year, Region, variable)
+  dplyr::select(Year, Region, variable)
 
 # View the result
 head(na_data) #No NAs left!
 ```
 
-Prep by removing time trends (sample too small) and adding a post-war dummy. 
+Prep by adding a post-war dummy. 
 ```{r}
 region_year_data <- region_year_data %>%
   # Add the postwar dummy variable
@@ -953,11 +961,6 @@ Output folder
 output_directory <- "/Users/michelle/Documents/thesis/MODEL OUTPUT (w nowcasted series)" 
 ```
 
-```{r}
-print(region_year_data['Inflow'])
-print(extended_time_series_flows['Fitted Values'])
-```
-
 
 
 
@@ -966,9 +969,9 @@ print(extended_time_series_flows['Fitted Values'])
 
 ```{r}
 region_year_data_copy <- region_year_data %>%
-  select(-mediazona) #needs to be logged only
+  dplyr::select(-mediazona) #needs to be logged only
 region_year_data <- region_year_data %>%
-  select(-contains("mediazona"))
+  dplyr::select(-contains("mediazona"))
 ```
 
 ## A_X: No fixed effects (not really functional due to lack of predictors)
@@ -986,7 +989,7 @@ formula <- as.formula(paste("log1p(Inflow) ~ ",   # Remove the intercept with "0
 full_model <- lm(formula, data = region_year_data)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(full_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
@@ -1048,7 +1051,7 @@ formula <- as.formula(paste("log1p(Inflow) ~ 0 +",   # Remove the intercept with
 full_model <- lm(formula, data = region_year_data)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(full_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
@@ -1121,7 +1124,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1193,7 +1196,7 @@ library(lmtest)    # For coeftest function
 
 # Prepare the data (remove unwanted columns)
 region_year_data <- region_year_data %>% 
-  select(-contains("mediazona"))
+  dplyr::select(-contains("mediazona"))
 
 # Create the formula for the model (Inflow as the dependent variable)
 formula <- as.formula(paste("log1p(Inflow) ~ ",  
@@ -1206,7 +1209,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1286,7 +1289,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1358,7 +1361,7 @@ library(lmtest)    # For coeftest function
 
 # Prepare the data (remove unwanted columns)
 region_year_data <- region_year_data %>% 
-  select(-contains("mediazona"))
+  dplyr::select(-contains("mediazona"))
 
 # Create the formula for the model (Inflow as the dependent variable)
 formula <- as.formula(paste("log1p(Inflow) ~ ",  
@@ -1371,7 +1374,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1459,7 +1462,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1539,7 +1542,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1618,7 +1621,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
@@ -1698,7 +1701,7 @@ full_model <- lm(formula, data = region_year_data)
 stepwise_model <- step(full_model, direction = "both", trace = 1)
 
 # Obtain robust standard errors
-robust_se <- vcovHC(stepwise_model, type = "HC0")  # HC0 for robust SE
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
 
 # Get the summary with robust standard errors
 robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors

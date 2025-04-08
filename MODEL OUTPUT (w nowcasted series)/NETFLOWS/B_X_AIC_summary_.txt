@@ -1,0 +1,31 @@
+
+Call:
+lm(formula = Netflow ~ change_in_output + changeinindustrialproduction_all + 
+    changeinindustrialproduction_mineral_extraction + log_total_pop + 
+    log_city_pop + log_avg_nominal_gross_wages + lag_log_total_pop + 
+    lag_log_city_pop + war + postwar, data = region_year_data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-1988.6  -135.9   -24.4    81.5  4468.1 
+
+Coefficients:
+                                                Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                                     -4896.23    1080.94  -4.530 7.48e-06 ***
+change_in_output                                  756.01     321.87   2.349  0.01924 *  
+changeinindustrialproduction_all                 -233.90     149.91  -1.560  0.11936    
+changeinindustrialproduction_mineral_extraction    81.88      53.38   1.534  0.12575    
+log_total_pop                                    5357.44    2852.08   1.878  0.06093 .  
+log_city_pop                                    -4165.06    2588.34  -1.609  0.10825    
+log_avg_nominal_gross_wages                       329.31      81.51   4.040 6.23e-05 ***
+lag_log_total_pop                               -5111.78    2848.28  -1.795  0.07334 .  
+lag_log_city_pop                                 3994.49    2561.89   1.559  0.11962    
+war                                              -589.17      82.71  -7.123 3.94e-12 ***
+postwar                                           101.56      37.28   2.724  0.00669 ** 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 451.8 on 475 degrees of freedom
+Multiple R-squared:  0.1785,	Adjusted R-squared:  0.1612 
+F-statistic: 10.32 on 10 and 475 DF,  p-value: 7.996e-16
+

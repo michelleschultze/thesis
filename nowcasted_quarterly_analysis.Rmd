@@ -1,0 +1,365 @@
+This file will test basic DID hypotheses with the nowcasted data. 
+
+```{r}
+library(readr)
+library(dplyr)
+library(readxl)
+library(tidyr)
+library(zoo)
+library(sandwich)
+library(lmtest)
+library(MASS)
+```
+
+Load in / merge data
+```{r}
+forecastvals_mdlA <- read_csv("Documents/thesis/Nowcast visitors (various types)/private travelers/mdl_A_forecastvals.csv") %>%
+  mutate(privatetravelers = Point.Forecast) %>%
+  dplyr::select(privatetravelers) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/business visitors/mdl_A_forecastvals.csv") %>%
+  mutate(businessvisitors = Point.Forecast) %>%
+  dplyr::select(businessvisitors)) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/total visitors/mdl_A_forecastvals.csv") %>%
+  mutate(alltypes = Point.Forecast) %>%
+  dplyr::select(alltypes)) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/transit travelers/mdl_A_forecastvals.csv") %>%
+  mutate(transit = Point.Forecast) %>%
+  dplyr::select(transit)) 
+
+forecastvals_mdlB <- read_csv("Documents/thesis/Nowcast visitors (various types)/private travelers/mdl_B_forecastvals.csv") %>%
+  mutate(privatetravelers = Point.Forecast) %>%
+  dplyr::select(privatetravelers) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/business visitors/mdl_B_forecastvals.csv") %>%
+  mutate(businessvisitors = Point.Forecast) %>%
+  dplyr::select(businessvisitors)) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/total visitors/mdl_B_forecastvals.csv") %>%
+  mutate(alltypes = Point.Forecast) %>%
+  dplyr::select(alltypes)) %>%
+  cbind(read_csv("Documents/thesis/Nowcast visitors (various types)/transit travelers/mdl_B_forecastvals.csv") %>%
+  mutate(transit = Point.Forecast) %>%
+  dplyr::select(transit)) 
+```
+
+Add quarters
+```{r}
+# Generate the sequence of quarterly dates
+quarters <- seq(as.Date("2017-01-01"), by = "quarter", length.out = nrow(forecastvals_mdlA))
+
+# Extract the month as a number and calculate the quarter
+month_nums <- as.numeric(format(quarters, "%m"))
+quarter_nums <- (month_nums - 1) %/% 3 + 1
+
+# Construct the "YYYY QX" format
+quarter_labels <- paste(format(quarters, "%Y"), paste0("Q", quarter_nums))
+
+# Add to the dataframe
+forecastvals_mdlA$Quarter <- quarter_labels
+
+
+
+
+# Generate the sequence of quarterly dates
+quarters <- seq(as.Date("2017-01-01"), by = "quarter", length.out = nrow(forecastvals_mdlB))
+
+# Extract the month as a number and calculate the quarter
+month_nums <- as.numeric(format(quarters, "%m"))
+quarter_nums <- (month_nums - 1) %/% 3 + 1
+
+# Construct the "YYYY QX" format
+quarter_labels <- paste(format(quarters, "%Y"), paste0("Q", quarter_nums))
+
+# Add to the dataframe
+forecastvals_mdlB$Quarter <- quarter_labels
+```
+
+Merge the actual realizations into each
+```{r}
+inflows_quarterly <- read_excel("~/Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/QUARTERLY_MIGRANT_FLOWS_CLEANED.xls")
+
+# Pivot the data to long format
+inflows_quarterly <- inflows_quarterly %>%
+  pivot_longer(
+    cols = -`Type of Visitation`,  # Keep the "Type of Visitation" column as is
+    names_to = "Quarter",          # New column for quarter labels
+    values_to = "Value"            # New column for values
+  ) %>%
+  arrange(`Type of Visitation`, Quarter)
+
+# Pivot to wide format to make each visitation type a separate column
+inflows_quarterly <- inflows_quarterly %>%
+  pivot_wider(
+    names_from = `Type of Visitation`,  # Use visitation type as column names
+    values_from = Value                 # Fill with corresponding values
+  ) %>%
+  arrange(Quarter)
+
+# Convert Quarter to a date-like format (yearqtr from zoo)
+inflows_quarterly <- inflows_quarterly %>%
+  mutate(Quarter = as.yearqtr(Quarter, format = "%Y Q%q"),
+         privatetravelers = log1p(`private travelers`),
+         businessvisitors = log1p(`business visitors`),
+         alltypes = log1p(`total visitors, all types`),
+         transit = log1p(`transit travelers`)) %>%
+  dplyr::select(privatetravelers, businessvisitors, alltypes, transit, Quarter)
+```
+
+Merge mdlA
+```{r}
+# Step 1: Convert Quarter column to character in both for consistency
+inflows_quarterly <- inflows_quarterly %>%
+  mutate(Quarter = as.character(Quarter))
+
+forecastvals_mdlA <- forecastvals_mdlA %>%
+  mutate(Quarter = as.character(Quarter))
+
+# Step 2: Ensure the columns are in the same order and same names
+common_cols <- c("privatetravelers", "businessvisitors", "alltypes", "transit", "Quarter")
+
+inflows_quarterly <- inflows_quarterly[, common_cols]
+forecastvals_mdlA  <- forecastvals_mdlA[, common_cols]
+
+# Step 3: Bind them, putting inflows_quarterly first
+forecastvals_mdlA <- bind_rows(inflows_quarterly, forecastvals_mdlA)
+
+# View result
+head(forecastvals_mdlA)
+tail(forecastvals_mdlA)
+```
+
+Merge mdlB
+```{r}
+# Step 1: Convert Quarter column to character in both for consistency
+inflows_quarterly <- inflows_quarterly %>%
+  mutate(Quarter = as.character(Quarter))
+
+forecastvals_mdlB <- forecastvals_mdlB %>%
+  mutate(Quarter = as.character(Quarter))
+
+# Step 2: Ensure the columns are in the same order and same names
+common_cols <- c("privatetravelers", "businessvisitors", "alltypes", "transit", "Quarter")
+
+inflows_quarterly <- inflows_quarterly[, common_cols]
+forecastvals_mdlB  <- forecastvals_mdlB[, common_cols]
+
+# Step 3: Bind them, putting inflows_quarterly first
+forecastvals_mdlB <- bind_rows(inflows_quarterly, forecastvals_mdlB)
+
+# View result
+head(forecastvals_mdlB)
+tail(forecastvals_mdlB)
+```
+
+Make quarterly dummies
+```{r}
+library(dplyr)
+library(stringr)
+
+forecastvals_mdlB <- forecastvals_mdlB %>%
+  mutate(
+    quarter_str = str_extract(Quarter, "Q[1-4]"),
+    Q1 = as.integer(quarter_str == "Q1"),
+    Q2 = as.integer(quarter_str == "Q2"),
+    Q3 = as.integer(quarter_str == "Q3"),
+    Q4 = as.integer(quarter_str == "Q4")
+  ) %>%
+  dplyr::select(-quarter_str)  # Optional: remove helper column
+
+forecastvals_mdlA <- forecastvals_mdlA %>%
+  mutate(
+    quarter_str = str_extract(Quarter, "Q[1-4]"),
+    Q1 = as.integer(quarter_str == "Q1"),
+    Q2 = as.integer(quarter_str == "Q2"),
+    Q3 = as.integer(quarter_str == "Q3"),
+    Q4 = as.integer(quarter_str == "Q4")
+  ) %>%
+  dplyr::select(-quarter_str)  # Optional: remove helper column
+```
+
+Make the war dummies
+```{r}
+forecastvals_mdlB <- forecastvals_mdlB %>%
+  mutate(
+    war = if_else(Quarter >= "2022 Q1", 1, 0),
+    post_war = if_else(Quarter > "2022 Q1", row_number() - which(Quarter == "2022 Q1"), 0),
+    crocus = if_else(Quarter >= "2024 Q2", 1, 0),
+    post_crocus = if_else(Quarter > "2024 Q2", row_number() - which(Quarter == "2024 Q2"), 0)
+  )
+
+forecastvals_mdlA <- forecastvals_mdlA %>%
+  mutate(
+    war = if_else(Quarter >= "2022 Q1", 1, 0),
+    post_war = if_else(Quarter > "2022 Q1", row_number() - which(Quarter == "2022 Q1"), 0),
+    crocus = if_else(Quarter >= "2024 Q2", 1, 0),
+    post_crocus = if_else(Quarter > "2024 Q2", row_number() - which(Quarter == "2024 Q2"), 0)
+  ) 
+```
+
+COVID dummy
+```{r}
+forecastvals_mdlB$covid <- ifelse(
+  forecastvals_mdlB$Quarter %in% c("2020 Q1", "2020 Q2", "2020 Q3", "2020 Q4"), 
+  1, 
+  0
+)
+forecastvals_mdlA$covid <- ifelse(
+  forecastvals_mdlA$Quarter %in% c("2020 Q1", "2020 Q2", "2020 Q3", "2020 Q4"), 
+  1, 
+  0
+)
+```
+
+Mediazona
+```{r}
+Mediazona <- read_excel("Documents/thesis/Macrodata/Mediazona.xlsx", 
+    sheet = "Quarterly")
+
+forecastvals_mdlA <- left_join(forecastvals_mdlA, Mediazona, by = "Quarter")
+forecastvals_mdlB <- left_join(forecastvals_mdlB, Mediazona, by = "Quarter")
+
+forecastvals_mdlA <- forecastvals_mdlA %>%
+  mutate(
+    log_mediazona = log(mediazona + 1),  # avoid log(0)
+    log_mediazona_lag1 = replace_na(lag(log_mediazona, 1), 0),
+    log_mediazona_lag2 = replace_na(lag(log_mediazona, 2), 0)
+  ) %>%
+  dplyr::select(-mediazona)
+
+forecastvals_mdlB <- forecastvals_mdlB %>%
+  mutate(
+    log_mediazona = log(mediazona + 1),  # avoid log(0)
+    log_mediazona_lag1 = replace_na(lag(log_mediazona, 1), 0),
+    log_mediazona_lag2 = replace_na(lag(log_mediazona, 2), 0)
+  ) %>%
+  dplyr::select(-mediazona)
+
+```
+
+Muslim calendar dummies
+```{r}
+vertical_q_m_muslim_calendar_dummies <- read_excel("Documents/thesis/vertical q:m muslim calendar dummies.xlsx") %>%
+  mutate(across(everything(), ~replace(., is.na(.), 0)))
+
+forecastvals_mdlA <- left_join(forecastvals_mdlA, vertical_q_m_muslim_calendar_dummies, by = "Quarter")
+forecastvals_mdlB <- left_join(forecastvals_mdlB, vertical_q_m_muslim_calendar_dummies, by = "Quarter")
+
+colnames(forecastvals_mdlA) <- gsub("[-[:space:]]", "_", colnames(forecastvals_mdlA))
+colnames(forecastvals_mdlB) <- gsub("[-[:space:]]", "_", colnames(forecastvals_mdlB))
+```
+
+Add an (exponential) time trend
+```{r}
+forecastvals_mdlA$time_trend <- seq_along(forecastvals_mdlA$Quarter)
+forecastvals_mdlB$time_trend <- seq_along(forecastvals_mdlB$Quarter)
+```
+
+Run regressions on forecastvals_mdlA
+```{r}
+# Function to run regression, compute HC3 robust standard errors, and extract results
+run_regression <- function(dep_var) {
+  # Define formula
+  formula <- as.formula(
+    paste(dep_var, "~ 0 + Q1 + Q2 + Q3 + Q4 + war + post_war + crocus + post_crocus + time_trend + covid + Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + log_mediazona + log_mediazona_lag1 + log_mediazona_lag2")
+  ) 
+  
+  # Run the regression
+  model <- lm(formula, data = forecastvals_mdlA)
+  
+  # Perform stepwise BIC selection
+  stepwise_model <- stepAIC(model, direction = "both", k = log(nrow(forecastvals_mdlA)))
+  
+  # Compute HC3 robust standard errors
+  robust_se <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+  
+  # Extract coefficients and p-values
+  coef_estimates <- coef(stepwise_model)
+  p_values <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))[, 4]
+  
+  # Apply significance markers
+  significance <- ifelse(p_values < 0.001, "***", 
+                         ifelse(p_values < 0.01, "**", 
+                                ifelse(p_values < 0.05, "*", "ns")))
+  
+  # Combine coefficients, robust standard errors, and significance markers
+  results <- data.frame(
+    Coefficient = coef_estimates,
+    Robust_SE = robust_se,
+    P_value = p_values,
+    Significance = significance
+  )
+  
+  return(results)
+}
+
+# Ensure visitor_types is defined
+visitor_types <- c("privatetravelers", "businessvisitors", "alltypes", "transit")
+
+# Run regressions for each visitor type and store results in a list
+regression_results <- lapply(visitor_types, run_regression)
+
+# Name the list elements with visitor types
+names(regression_results) <- visitor_types
+
+# Combine all results into one dataframe for easier viewing
+all_results <- do.call(rbind, regression_results)
+
+# View the combined results
+print(all_results)
+
+write.csv(all_results, file = "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdlA_regression_results.csv", row.names = TRUE)
+```
+
+Run regressions on forecastvals_mdlB
+```{r}
+# Function to run regression, compute HC3 robust standard errors, and extract results
+run_regression <- function(dep_var) {
+  # Define formula
+  formula <- as.formula(
+    paste(dep_var, "~ 0 + Q1 + Q2 + Q3 + Q4 + war + post_war + crocus + post_crocus + time_trend + covid + Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + log_mediazona + log_mediazona_lag1 + log_mediazona_lag2")
+  )
+  
+  # Run the initial full regression model
+  model <- lm(formula, data = forecastvals_mdlB)
+  
+  # Perform stepwise BIC selection
+  stepwise_model <- stepAIC(model, direction = "both", k = log(nrow(forecastvals_mdlB)))
+  
+  # Compute HC1 robust standard errors
+  robust_se <- sqrt(diag(vcovHC(stepwise_model, type = "HC1")))
+  
+  # Extract coefficients and p-values
+  coef_estimates <- coef(stepwise_model)
+  p_values <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC1"))[, 4]
+  
+  # Apply significance markers
+  significance <- ifelse(p_values < 0.001, "***", 
+                         ifelse(p_values < 0.01, "**", 
+                                ifelse(p_values < 0.05, "*", "ns")))
+  
+  # Combine coefficients, robust standard errors, and significance markers
+  results <- data.frame(
+    Coefficient = coef_estimates,
+    Robust_SE = robust_se,
+    P_value = p_values,
+    Significance = significance
+  )
+  
+  return(results)
+}
+
+# Ensure visitor_types is defined
+visitor_types <- c("privatetravelers", "businessvisitors", "alltypes", "transit")
+
+# Run regressions for each visitor type and store results in a list
+regression_results <- lapply(visitor_types, run_regression)
+
+# Name the list elements with visitor types
+names(regression_results) <- visitor_types
+
+# Combine all results into one dataframe for easier viewing
+all_results <- do.call(rbind, regression_results)
+
+# View the combined results
+print(all_results)
+
+write.csv(all_results, file = "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdlB_regression_results.csv", row.names = TRUE)
+```

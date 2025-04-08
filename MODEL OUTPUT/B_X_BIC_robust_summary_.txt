@@ -2,13 +2,13 @@
 t test of coefficients:
 
                                   Estimate Std. Error  t value  Pr(>|t|)    
-(Intercept)                     -39.900915   3.607693 -11.0600 < 2.2e-16 ***
-log_total_pop                     8.917082   3.207709   2.7799 0.0058761 ** 
-log_rural_pop                     0.113944   0.036231   3.1449 0.0018748 ** 
-log_avg_nominal_gross_wages      11.078756   2.949304   3.7564 0.0002172 ***
-lag_log_total_pop                -8.095476   3.237305  -2.5007 0.0130747 *  
-postwar                          -0.650252   0.120789  -5.3834 1.762e-07 ***
-lag_log_avg_nominal_gross_wages  -8.107489   2.899179  -2.7965 0.0055921 ** 
+(Intercept)                     -39.900915   3.815580 -10.4574 < 2.2e-16 ***
+log_total_pop                     8.917082   3.433576   2.5970 0.0099942 ** 
+log_rural_pop                     0.113944   0.045564   2.5007 0.0130733 *  
+log_avg_nominal_gross_wages      11.078756   3.090144   3.5852 0.0004093 ***
+lag_log_total_pop                -8.095476   3.463939  -2.3371 0.0202727 *  
+postwar                          -0.650252   0.126801  -5.1281 6.099e-07 ***
+lag_log_avg_nominal_gross_wages  -8.107489   3.038170  -2.6685 0.0081465 ** 
 ---
 Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 

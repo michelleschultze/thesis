@@ -1,0 +1,795 @@
+This file will be used to load in monthly data, merge them, produce dummies, 
+and then run a 3-step AIC/BIC analysis like with the other models.
+
+## Prepwork
+
+Packages
+```{r}
+library(readxl)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(sandwich)  # For robust standard errors
+library(lmtest)     # For coeftest to display robust SEs
+library(caret)
+library(MASS)
+library(stargazer)
+```
+
+Data load in
+```{r}
+vertdata <- read_excel("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/MONTHLY COVARIATES.xlsx", 
+    sheet = "vertical")
+horizdata <- read_excel("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/MONTHLY COVARIATES.xlsx", 
+    sheet = "horizontal")
+```
+
+Merge horizontal/vertical covariates
+```{r}
+vertdata <- vertdata %>%
+  mutate(across(where(is.character), ~ as.numeric(.))) %>%  # Convert character columns to numeric
+  pivot_longer(
+    cols = -Month,  # Keep "Month" column fixed
+    names_to = "Variable",  # Create a new column "Variable" for the column names
+    values_to = "Value"  # Create a new column "Value" for the values
+  )
+
+horizdata <- horizdata %>%
+  rename(Variable = Month) %>%  # Rename "Month" to something more descriptive
+  pivot_longer(
+    cols = -Variable,   # Keep the "Category" column fixed
+    names_to = "ExcelDate",  
+    values_to = "Value"  
+  ) %>%
+  mutate(
+    ExcelDate = as.numeric(ExcelDate),  # Convert column names to numeric
+    Date = as.Date(ExcelDate, origin = "1899-12-30"),  # Convert Excel serial to proper date
+    Month = format(Date, "%Y-%m")  # Extract Year-Month
+  ) %>%
+  dplyr::select(Month, Variable, Value)  # Keep only useful columns
+
+vertdata <- vertdata %>%
+  mutate(
+    Month = format(as.Date(Month), "%Y-%m")  # Convert to Year-Month format
+  ) %>%
+  dplyr::select(Month, Variable, Value)  # Keep only relevant columns
+
+fulldata <- dplyr::bind_rows(horizdata, vertdata)
+
+fulldata %>%
+  dplyr::count(Month, Variable) %>%
+  dplyr::filter(n > 1)
+
+# Check for duplicates based on the combination of Month and Variable
+fulldata %>%
+  group_by(Month, Variable) %>%
+  summarise(n = n()) %>%  # Count the occurrences of each (Month, Variable) pair
+  filter(n > 1)  # Filter for those with more than one occurrence
+```
+
+Adding TGE covariates and removing some duplicates
+```{r}
+library(readr)
+TGE_monthly_df <- read_csv("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/TGE_monthly_df.csv")
+
+TGE_monthly_df <- TGE_monthly_df %>%
+  mutate(Month = sprintf("%04d-%02d", Year, Month))
+
+TGE_monthly_df <- TGE_monthly_df %>%
+  mutate(
+    Variable = gsub(" ", "_", Variable),  # Replace spaces with underscores
+    Variable = paste0(Variable, "_", ifelse(Country == "Kyrgyzstan", "KGZ", "RUS"))  # Append "_KGZ" or "_RUS"
+  )
+
+TGE_monthly_df <- TGE_monthly_df %>%
+  dplyr::select(Month, Variable, Value)
+
+# Optional: Check the structure of both dataframes to ensure consistency
+str(TGE_monthly_df)
+str(fulldata)
+
+fulldata <- bind_rows(TGE_monthly_df, fulldata)
+```
+
+Pivot wider
+```{r}
+fulldata <- fulldata %>%
+  pivot_wider(
+    names_from = Variable,  # Each unique value in 'Variable' becomes a column
+    values_from = Value     # Fill those columns with values from 'Value'
+  )
+```
+
+Generate new dummies
+```{r}
+# Assuming `Month` is a datetime column or character column, we convert it to Date format first
+# Convert 'Month' to Date format
+# Convert 'Month' to Date format
+fulldata <- fulldata %>%
+  mutate(
+    Month = as.Date(paste(Month, "01", sep = "-")),  # Convert to Date by appending '01' for day
+    
+    # War: 1 from February 2022 onward
+    war = if_else(Month >= as.Date("2022-02-01"), 1, 0),
+    
+    # Post-war: Counts up from 0 starting from February 2022
+    post_war = coalesce(if_else(Month >= as.Date("2022-02-01"), as.numeric(difftime(Month, as.Date("2022-02-24"), units = "days")), NA_real_), 0),
+    
+    # Crocus: 1 from March 2024 onward
+    crocus = if_else(Month >= as.Date("2024-03-01"), 1, 0),
+    
+    # Post-crocus: Counts up from 0 starting from March 2024
+    post_crocus = coalesce(if_else(Month >= as.Date("2024-03-01"), as.numeric(difftime(Month, as.Date("2024-03-22"), units = "days")), NA_real_), 0)
+  )
+
+fulldata <- fulldata %>%
+  mutate(
+    # Replace NAs in the 'eid' column with 0
+    Ramadan_starts = coalesce(Ramadan_starts, 0),
+    Eid_al_Adha = coalesce(Eid_al_Adha, 0),
+    Eid_al_Fitr = coalesce(Eid_al_Fitr, 0)
+  )
+
+# Create the COVID dummy variable
+fulldata <- fulldata %>%
+  mutate(
+    covid = if_else(Month >= as.Date("2020-03-01") & Month <= as.Date("2021-03-01"), 1, 0)
+  )
+
+# Create monthly dummies based on the unique months
+fulldata <- fulldata %>%
+  mutate(
+    # Extract the month from 'Month' (assuming it's in the 'YYYY-MM' format)
+    month_num = as.numeric(format(as.Date(Month, format = "%Y-%m"), "%m")),
+    
+    # Create dummy variables for each month (January to December)
+    jan = if_else(month_num == 1, 1, 0),
+    feb = if_else(month_num == 2, 1, 0),
+    mar = if_else(month_num == 3, 1, 0),
+    apr = if_else(month_num == 4, 1, 0),
+    may = if_else(month_num == 5, 1, 0),
+    jun = if_else(month_num == 6, 1, 0),
+    jul = if_else(month_num == 7, 1, 0),
+    aug = if_else(month_num == 8, 1, 0),
+    sep = if_else(month_num == 9, 1, 0),
+    oct = if_else(month_num == 10, 1, 0),
+    nov = if_else(month_num == 11, 1, 0),
+    dec = if_else(month_num == 12, 1, 0)
+  ) %>%
+  dplyr::select(-month_num)  # Optionally remove the intermediate 'month_num' column
+
+# View the updated data
+head(fulldata)
+
+fulldata <- fulldata %>%
+  mutate(time_trend = as.numeric(difftime(Month, min(Month), units = "weeks")) + 1)
+```
+
+## Just war effects + crocus dummy effects and NO seasonality
+
+```{r}
+# Step 1: Fit an initial linear model
+model <- lm(log(Remittances_fromRus) ~ war + post_war + crocus + post_crocus + covid, 
+   data = fulldata)
+
+# Step 3: Compute robust standard errors using vcovHC
+robust_se <- vcovHC(model, type = "HC1")
+
+# Step 4: Display the results with robust standard errors
+summary_robust <- coeftest(model, vcov = robust_se)
+print(model)
+print(summary_robust)
+```
+
+```{r}
+library(ggplot2)
+
+# Generate fitted values from the model
+fulldata$predicted <- NA  # Initialize predicted column
+fulldata$predicted <- predict(model, newdata = fulldata %>% drop_na(war, post_war, crocus, post_crocus))
+
+
+# Plot the actual time series
+ggplot(fulldata, aes(x = Month)) +
+  geom_line(aes(y = Remittances_fromRus), color = "black", size = 1, alpha = 0.7) +  # Actual log remittances
+  geom_line(aes(y = exp(predicted)), color = "red", size = 1, linetype = "dashed") +  # DID model prediction
+  labs(title = "Time Series of Remittances with Double DID Model",
+       x = "Month",
+       y = "Remittances",
+       caption = "Black: Actual | Red Dashed: DID Model") +
+  theme_minimal()
+
+```
+
+## Just war effects + crocus dummy effects and monthly seasonality
+
+```{r}
+# Step 1: Fit an initial linear model
+model <- lm(log(Remittances_fromRus) ~ war + post_war + crocus + post_crocus + covid +
+     jan + feb + mar + apr + may + jun + jul + aug + sep + oct + nov + dec + time_trend - 1, 
+   data = fulldata)
+
+# Step 3: Compute robust standard errors using vcovHC
+robust_se <- vcovHC(model, type = "HC1")
+
+# Step 4: Display the results with robust standard errors
+summary_robust <- coeftest(model, vcov = robust_se)
+print(model)
+print(summary_robust)
+```
+
+```{r}
+library(ggplot2)
+
+# Generate fitted values from the model
+fulldata$predicted <- NA  # Initialize predicted column
+fulldata$predicted <- predict(model, newdata = fulldata %>% drop_na(war, post_war, crocus, post_crocus))
+
+
+# Plot the actual time series
+ggplot(fulldata, aes(x = Month)) +
+  geom_line(aes(y = Remittances_fromRus), color = "black", size = 1, alpha = 0.7) +  # Actual log remittances
+  geom_line(aes(y = exp(predicted)), color = "red", size = 1, linetype = "dashed") +  # DID model prediction
+  labs(title = "Time Series of Remittances with Double DID Model",
+       x = "Month",
+       y = "Remittances",
+       caption = "Black: Actual | Red Dashed: DID Model") +
+  theme_minimal()
+```
+
+## Adding in economic covariates: narrow it down first
+
+Remove covariates that lack observations for the critical timeframe. 121 vars.
+```{r}
+fulldata_copy <- fulldata
+
+tempset <- fulldata %>%
+  filter(Month <= as.Date("2024-09-01") & Month >= as.Date("2011-01-01"))
+
+na_columns <- colnames(tempset)[colSums(is.na(tempset)) > 0]
+fulldata <- fulldata %>% dplyr::select(-all_of(na_columns))
+na_columns
+```
+
+Remove collinearity: down to ~102 vars
+```{r}
+filtered_data <- fulldata %>%
+  filter(Month <= as.Date("2024-09-01") & Month >= as.Date("2016-01-01"))
+
+# Compute correlation matrix
+cor_matrix <- cor(filtered_data %>% select_if(is.numeric))
+
+# Set the cutoff for correlation (e.g., 0.9)
+high_corr_pairs <- which(abs(cor_matrix) > 0.97, arr.ind = TRUE)
+
+# Filter out the upper triangle to only show pairs of columns
+high_corr_pairs <- high_corr_pairs[high_corr_pairs[,1] < high_corr_pairs[,2], ]
+
+# Get the names of the columns involved in the high correlation
+high_corr_column_names <- apply(high_corr_pairs, 1, function(x) {
+  # Only get pairs where the columns are different
+  if (x[1] != x[2]) {
+    return(colnames(cor_matrix)[x])
+  }
+})
+
+# Remove any NULL values (which could occur if self-correlations were included)
+high_corr_column_names <- high_corr_column_names[!sapply(high_corr_column_names, is.null)]
+
+# Print the high correlation pairs
+high_corr_column_names
+
+# Count the frequency of each column name
+column_counts <- table(unlist(high_corr_column_names))
+
+# Identify columns that appear more than 10 times
+columns_to_remove <- names(column_counts[column_counts > 10])
+
+fulldata <- fulldata %>%
+  dplyr::select(-all_of(columns_to_remove))
+```
+
+Find percentage variables
+```{r}
+fulldata <- fulldata %>%
+  dplyr::select(-predicted)
+
+# Find columns that fluctuate between 50 and 150 or have "_pct_" in their name
+percentage_columns <- fulldata %>%
+  select_if(is.numeric) %>%
+  summarise_all(~ all(. >= 70 & . <= 150, na.rm = TRUE)) %>%
+  gather() %>%
+  filter(value == TRUE) %>%
+  pull(key) #these are all exchange rates, which we DO want to log. 
+
+# Add columns that have "_pct_" in their name
+pct_columns_by_percent <- grep("percent", colnames(fulldata), value = TRUE)
+pct_columns_by_rate <- grep("rate", colnames(fulldata), value = TRUE)
+pct_columns_by_ratio <- grep("ratio", colnames(fulldata), value = TRUE)
+
+# Combine both sets of percentage columns
+all_percentage_columns <- unique(c(pct_columns_by_percent, pct_columns_by_rate, pct_columns_by_ratio)) 
+
+shouldbelogged <- c("Foreign_exchange_reserves_billion_currency_units_KGZ", "USD_Exchange_rate_KGZ", "Foreign_exchange_reserves_billion_currency_units_RUS", "USD_Exchange_rate_RUS")
+
+all_percentage_columns <- setdiff(all_percentage_columns, shouldbelogged)
+
+# Print the list of columns designated as percentages
+print(all_percentage_columns)
+
+# Get the columns that are not percentage columns
+non_percentage_columns <- setdiff(colnames(fulldata), all_percentage_columns)
+
+# Filter out the rows where values in these columns exceed 1
+levels_variables <- fulldata %>% 
+  dplyr::select(non_percentage_columns) %>% 
+  summarise_all(~ sum(. > 1, na.rm = TRUE)) %>%
+  gather(variable, count) %>%
+  filter(count > 0)
+
+print(levels_variables, n=1000)
+
+# Define the variables to exclude
+exclude_variables <- c(
+  "post_war", "post_crocus", "time_trend", "Month", 
+  "commbanks_loans_to_deposits_foreign_currency_KGZ", 
+  "commbanks_loan_loss_provision_KGZ", "Ramadan_starts", 
+  "Eid_al_Fitr", "Eid_al_Adha", "war", "crocus", "covid", 
+  "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", 
+  "sep", "oct", "nov", "dec"
+)
+
+# Remove the specified variables from the levels_variables list
+levels_variables_filtered <- setdiff(levels_variables$variable, exclude_variables)
+
+# Print the remaining "levels" variables
+print(levels_variables_filtered)
+
+library(dplyr)
+
+# Loop through each variable in levels_variables_filtered and check for values < 0
+levels_variables_filtered <- levels_variables_filtered[sapply(levels_variables_filtered, function(var) {
+  # Check if there are any values less than 0 in the column
+  all(fulldata[[var]] >= 0, na.rm = TRUE)  # Return TRUE if all values are >= 0
+})]
+
+# Apply log transformation and rename variables
+fulldata <- fulldata %>%
+  mutate(across(all_of(levels_variables_filtered), 
+                ~ log1p(.), 
+                .names = "log_{.col}"))
+
+fulldata <- fulldata %>%
+  dplyr::select(-all_of(levels_variables_filtered))  # Remove original variables
+
+# Print the updated dataframe column names to verify the transformation
+print(colnames(fulldata))
+```
+
+Remove high VIF variables 
+```{r}
+# Install and load the necessary package for VIF calculation
+#install.packages("car")  # If not already installed
+library(car)
+
+vif_analysis_fulldata <- fulldata %>%
+  filter(Month >= as.Date("2015-01-01")) %>%
+  filter(Month <= as.Date("2024-09-01")) %>%
+  dplyr::select(-time_trend, -log_mediazona, -Month, -post_war, -war, 
+                -post_crocus, -crocus, -jan, -feb, -mar, -apr, -may, -jun, 
+                -jul, -aug, -sep, -oct, -nov, -dec)  %>%
+  dplyr::select(where(~ !any(is.na(.))))
+
+# Run VIF on the model (excluding the dependent variable Remittances_fromRus)
+vif_model <- lm(log_Remittances_fromRus ~ ., data = vif_analysis_fulldata)
+
+# Check for aliased coefficients
+aliased <- alias(vif_model)
+
+# Get the names of aliased variables
+aliased_vars <- rownames(aliased$Complete)
+print(aliased_vars)
+
+# Remove the aliased variables from the dataset
+vif_analysis_fulldata <- vif_analysis_fulldata[, !(colnames(vif_analysis_fulldata) %in% aliased_vars)]
+
+# Run VIF on the model (excluding the dependent variable Remittances_fromRus)
+vif_model <- lm(log_Remittances_fromRus ~ ., data = vif_analysis_fulldata)
+vif_values <- car::vif(vif_model)
+print(vif_values)
+
+# Identify variables with high VIF (e.g., threshold > 10)
+high_vif_vars <- names(vif_values[vif_values > 750])
+
+columns_to_save <- c("log_USD_Exchange_rate_KGZ", "log_USD_Exchange_rate_RUS", "log_KGZ_REER_EAEU", "log_KGZ_REER_nonEAEU", "KGZ_BRE_RUBLE", "`log_Consumer_Price_Index_(CPI)_KGZ`", "`log_Consumer_Price_Index_(CPI)_KGZ`", "log_volume_credits_construction_KGZ", "log_volume_credits_socialservices_KGZ", "log_volume_credits_consumerloans_KGZ", "log_Foreign_exchange_reserves_billion_currency_units_RUS")
+high_vif_vars <- setdiff(high_vif_vars, columns_to_save)
+
+# Remove all columns that match either clean_aliased_vars or aliased_vars
+fulldata <- fulldata[, !(colnames(fulldata) %in% c(aliased_vars, high_vif_vars))]
+
+# Check the resulting columns
+colnames(fulldata)
+```
+Saved some variables.
+
+Lags
+```{r}
+excluded_vars <- c("log_Remittances_fromRus", "Ramadan_starts", 
+                   "Eid_al_Fitr", "Eid_al_Adha", "war", "post_war", "crocus", 
+                   "post_crocus", "covid", "jan", "feb", "mar", "apr", "may", 
+                   "jun", "jul", "aug", "sep", "oct", "nov", "dec", "Month", "time_trend")
+
+# Get a list of all the variable names in `fulldata`
+all_vars <- colnames(fulldata)
+
+# Filter out the variables that we don't want to lag
+vars_to_lag <- setdiff(all_vars, excluded_vars)
+
+# Create the lags for the variables in `vars_to_lag` using dplyr
+library(dplyr)
+
+fulldata_with_lags <- fulldata %>%
+  arrange(Month) %>%
+  mutate(across(all_of(vars_to_lag), list(lag1 = ~ lag(., 1)), .names = "{.col}_lag1"))
+
+# Display the first few rows to verify
+head(fulldata_with_lags)
+```
+
+Limit dates
+```{r}
+# Prep for industrialproduction-focused regression
+fulldata_with_lags <- fulldata_with_lags %>% 
+  filter(Month <= as.Date("2024-09-01")) %>%
+  filter(Month >= as.Date("2011-01-01")) %>%
+  dplyr::select(where(~ !any(is.na(.))))
+
+#Factorize months
+fulldata_with_lags$Month <- factor(format(fulldata_with_lags$Month, "%m"))
+fulldata_with_lags <- fulldata_with_lags %>%
+  mutate(Month = as.factor(Month))
+  
+#fulldata_with_lags <- fulldata_with_lags[, !(colnames(fulldata_with_lags) == "Month")]
+
+fulldata_with_lags <- fulldata_with_lags %>%
+  dplyr::select(-jan, -feb, -mar, -apr, -may, -jun, -jul, -aug, -sep, -oct, -nov, -dec, -time_trend)
+```
+
+
+## Estimate same model but with economic covariates, no seasonality (otherwise overdetermined), and no industrial production vars (NAs)
+
+BIC:
+```{r}
+# Fit a full model with all covariates and no intercept
+full_model <- lm(log_Remittances_fromRus ~ . -1, data = fulldata_with_lags)
+
+# Perform stepwise selection using AIC
+stepwise_model <- stepAIC(full_model, direction = "both", k = log(nrow(fulldata_with_lags)), trace = FALSE)
+summary(stepwise_model)
+
+# Get robust standard errors
+robust_se <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Get the coefficient estimates and their robust standard errors
+coef_summary <- summary(stepwise_model)$coefficients
+coef_summary[, 2] <- robust_se  # Replace the standard errors with robust ones
+
+# Print the results with robust standard errors
+print(coef_summary)
+
+library(broom)
+
+# Get tidy model output
+tidy_model <- tidy(stepwise_model, conf.int = TRUE, conf.level = 0.95)
+tidy_model$std.error <- robust_se
+
+# Format using a custom function if necessary
+print(tidy_model, n=1000)
+
+# Get the list of selected variables from the stepwise model
+selected_vars <- names(coef(stepwise_model))
+
+# Get the list of all variables in the full model
+all_vars <- names(coef(full_model))
+
+# Find the non-selected variables
+non_selected_vars <- setdiff(all_vars, selected_vars)
+
+# Print the non-selected variables
+print(non_selected_vars)
+```
+
+Dropping levels that were unable to be logged because of negative values
+```{r}
+fulldata_with_lags <- fulldata_with_lags %>%
+  dplyr::select(-commbanks_liabilities_to_nonresidents_KGZ, -commbanks_provision_for_other_losses_KGZ, -commbanks_net_income_after_tax_KGZ, -commbanks_net_domestic_assets_KGZ_lag1, -commbanks_provision_for_other_losses_KGZ_lag1, -commbanks_net_income_after_tax_KGZ_lag1, -commbanks_net_domestic_assets_KGZ)
+```
+
+BIC selection again:
+```{r}
+# Fit a full model with all covariates and no intercept
+full_model <- lm(log_Remittances_fromRus ~ . -1, data = fulldata_with_lags)
+
+# Perform stepwise selection using AIC
+stepwise_model <- stepAIC(full_model, direction = "both", k = log(nrow(fulldata_with_lags)), trace = FALSE)
+summary(stepwise_model)
+
+# Get robust standard errors
+robust_se <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Get the coefficient estimates and their robust standard errors
+coef_summary <- summary(stepwise_model)$coefficients
+coef_summary[, 2] <- robust_se  # Replace the standard errors with robust ones
+
+# Print the results with robust standard errors
+print(coef_summary)
+
+library(broom)
+
+# Get tidy model output
+tidy_model <- tidy(stepwise_model, conf.int = TRUE, conf.level = 0.95)
+tidy_model$std.error <- robust_se
+tidy_model$statistic <- tidy_model$estimate / tidy_model$std.error
+tidy_model$p.value <- 2 * pt(-abs(tidy_model$statistic), df = stepwise_model$df.residual)
+
+significance_tags <- function(p) {
+  ifelse(p < 0.001, "***",  # Highly significant
+         ifelse(p < 0.01, "**",  # Significant
+                ifelse(p < 0.05, "*",  # Significant
+                  ifelse(p < 0.1, ".",  # Marginally significant
+                       "ns"))))  # Not significant
+}
+
+# Apply the function to the p-value vector
+tidy_model$significance_levels <- sapply(tidy_model$p.value, significance_tags)
+
+# Format using a custom function if necessary
+print(tidy_model, n=1000)
+
+# Get the list of selected variables from the stepwise model
+selected_vars <- names(coef(stepwise_model))
+
+# Get the list of all variables in the full model
+all_vars <- names(coef(full_model))
+
+# Find the non-selected variables
+non_selected_vars <- setdiff(all_vars, selected_vars)
+
+# Print the non-selected variables
+print(non_selected_vars)
+```
+Those variables were really biasing the regression. Good to drop. 
+
+## Bring back the Russian wage and industrial data. 
+
+Take exactly the same covariates as before
+```{r}
+cols <- colnames(fulldata_with_lags)
+
+# Remove "log_" prefix and "_lag1" suffix
+cols <- gsub("^log_", "", cols)  # Remove "log_" at the start
+cols <- gsub("_lag1$", "", cols) # Remove "_lag1" at the end
+
+cols <- unique(cols)
+```
+
+But also add in all changeinindustrialproduction_all and avg_nominal_gross_wages variables.
+```{r}
+# Keep only the specified variables
+selected_vars <- grepl("changeinindustrialproduction_all|avg_nominal_gross_wages", colnames(fulldata_copy))
+cols <- cbind(cols, colnames(fulldata_copy[, selected_vars]))
+cols <- as.vector(cols)
+cols <- unique(cols)
+
+fulldata <- fulldata_copy %>%
+  dplyr::select(all_of(cols))
+```
+
+Find percentage variables
+```{r}
+# Find columns that fluctuate between 50 and 150 or have "_pct_" in their name
+percentage_columns <- fulldata %>%
+  select_if(is.numeric) %>%
+  summarise_all(~ all(. >= 70 & . <= 150, na.rm = TRUE)) %>%
+  gather() %>%
+  filter(value == TRUE) %>%
+  pull(key) #many of these are exchange rates, which we DO want to log. 
+
+# Add columns that have "_pct_" in their name
+pct_columns_by_percent <- grep("percent", colnames(fulldata), value = TRUE)
+pct_columns_by_rate <- grep("rate", colnames(fulldata), value = TRUE)
+pct_columns_by_ratio <- grep("ratio", colnames(fulldata), value = TRUE)
+pct_columns_changeind <- grep("changein", colnames(fulldata), value = TRUE)
+
+# Combine both sets of percentage columns
+all_percentage_columns <- unique(c(pct_columns_by_change, pct_columns_by_percent, pct_columns_by_rate, pct_columns_by_ratio, pct_columns_changeind)) 
+
+shouldbelogged <- c("Foreign_exchange_reserves_billion_currency_units_KGZ", "USD_Exchange_rate_KGZ", "Foreign_exchange_reserves_billion_currency_units_RUS", "USD_Exchange_rate_RUS")
+
+all_percentage_columns <- setdiff(all_percentage_columns, shouldbelogged)
+
+# Print the list of columns designated as percentages
+print(all_percentage_columns)
+
+# Get the columns that are not percentage columns
+non_percentage_columns <- setdiff(colnames(fulldata), all_percentage_columns)
+
+# Filter out the rows where values in these columns exceed 1
+levels_variables <- fulldata %>% 
+  dplyr::select(non_percentage_columns) %>% 
+  summarise_all(~ sum(. > 1, na.rm = TRUE)) %>%
+  gather(variable, count) %>%
+  filter(count > 0)
+
+print(levels_variables, n=1000)
+
+# Define the variables to exclude
+exclude_variables <- c(
+  "post_war", "post_crocus", "time_trend", "Month", 
+  "commbanks_loans_to_deposits_foreign_currency_KGZ", 
+  "commbanks_loan_loss_provision_KGZ", "Ramadan_starts", 
+  "Eid_al_Fitr", "Eid_al_Adha", "war", "crocus", "covid", 
+  "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", 
+  "sep", "oct", "nov", "dec"
+)
+
+# Remove the specified variables from the levels_variables list
+levels_variables_filtered <- setdiff(levels_variables$variable, exclude_variables)
+
+# Print the remaining "levels" variables
+print(levels_variables_filtered)
+
+library(dplyr)
+
+# Loop through each variable in levels_variables_filtered and check for values < 0
+levels_variables_filtered <- levels_variables_filtered[sapply(levels_variables_filtered, function(var) {
+  # Check if there are any values less than 0 in the column
+  all(fulldata[[var]] >= 0, na.rm = TRUE)  # Return TRUE if all values are >= 0
+})]
+
+# Apply log transformation and rename variables
+fulldata <- fulldata %>%
+  mutate(across(all_of(levels_variables_filtered), 
+                ~ log1p(.), 
+                .names = "log_{.col}"))
+
+fulldata <- fulldata %>%
+  dplyr::select(-all_of(levels_variables_filtered))  # Remove original variables
+
+# Print the updated dataframe column names to verify the transformation
+print(colnames(fulldata))
+```
+
+Lags
+```{r}
+excluded_vars <- c("log_Remittances_fromRus", "Ramadan_starts", 
+                   "Eid_al_Fitr", "Eid_al_Adha", "war", "post_war", "crocus", 
+                   "post_crocus", "covid", "jan", "feb", "mar", "apr", "may", 
+                   "jun", "jul", "aug", "sep", "oct", "nov", "dec", "Month", "time_trend")
+
+# Get a list of all the variable names in `fulldata`
+all_vars <- colnames(fulldata)
+
+# Filter out the variables that we don't want to lag
+vars_to_lag <- setdiff(all_vars, excluded_vars)
+
+# Create the lags for the variables in `vars_to_lag` using dplyr
+library(dplyr)
+
+fulldata_with_lags <- fulldata %>%
+  arrange(Month) %>%
+  mutate(across(all_of(vars_to_lag), list(lag1 = ~ lag(., 1)), .names = "{.col}_lag1"))
+
+# Display the first few rows to verify
+head(fulldata_with_lags)
+```
+
+Limit dates
+```{r}
+# Prep for industrialproduction-focused regression
+fulldata_with_lags <- fulldata_with_lags %>% 
+  filter(Month <= as.Date("2024-09-01")) %>%
+  filter(Month >= as.Date("2015-01-01")) %>%
+  dplyr::select(where(~ !any(is.na(.))))
+
+#Factorize months
+fulldata_with_lags$Month <- factor(format(fulldata_with_lags$Month, "%m"))
+fulldata_with_lags <- fulldata_with_lags %>%
+  mutate(Month = as.factor(Month))
+  
+#fulldata_with_lags <- fulldata_with_lags[, !(colnames(fulldata_with_lags) == "Month")]
+#Drop the levels with negatives that couldn't be logged, since we learned that they bias the regression (and we have plenty of other material)
+```
+
+Finally, we have to drop a handful of covariates (not selected in the other regression even by AIC) so this model is identified with the smaller sample size.
+```{r}
+# Define the columns to remove
+cols_to_remove <- c(
+  "Inflation_annual_percent_change_in_the_CPI_KGZ", 
+  "Inflation_annual_percent_change_in_the_CPI_KGZ_lag1", 
+  "Inflation_annual_percent_change_in_the_CPI_RUS", 
+  "Inflation_annual_percent_change_in_the_CPI_RUS_lag1", 
+  "log_Consumer_Price_Index_(CPI)_KGZ", 
+  "log_Consumer_Price_Index_(CPI)_KGZ_lag1", 
+  "log_volume_credits_communication_KGZ", 
+  "log_volume_credits_communication_KGZ_lag1", 
+  "commbanks_loan_loss_provision_KGZ", 
+  "commbanks_loan_loss_provision_KGZ_lag1", 
+  "avg_weighted_interest_rates_credits_communication_KGZ", 
+  "avg_weighted_interest_rates_credits_communication_KGZ_lag1", 
+  "log_Foreign_exchange_reserves_billion_currency_units_KGZ_lag1", 
+  "log_Foreign_exchange_reserves_billion_currency_units_RUS_lag1",
+  "log_Foreign_exchange_reserves_billion_currency_units_KGZ",
+  "log_Foreign_exchange_reserves_billion_currency_units_RUS"
+)
+
+# Remove the columns
+fulldata_with_lags <- fulldata_with_lags %>%
+  dplyr::select(-all_of(cols_to_remove))
+```
+
+## Run with these
+
+BIC:
+```{r}
+# Fit a full model with all covariates and no intercept
+full_model <- lm(log_Remittances_fromRus ~ . -1, data = fulldata_with_lags)
+
+# Perform stepwise selection using BIC
+stepwise_model <- stepAIC(full_model, direction = "both", k = 4*log(nrow(fulldata_with_lags)), trace = FALSE)
+summary(stepwise_model)
+
+# Get robust standard errors
+robust_se <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Get the coefficient estimates and their robust standard errors
+coef_summary <- summary(stepwise_model)$coefficients
+coef_summary[, 2] <- robust_se  # Replace the standard errors with robust ones
+
+# Print the results with robust standard errors
+print(coef_summary)
+
+library(broom)
+
+# Get tidy model output
+tidy_model <- tidy(stepwise_model, conf.int = TRUE, conf.level = 0.95)
+tidy_model$std.error <- robust_se
+tidy_model$statistic <- tidy_model$estimate / tidy_model$std.error
+tidy_model$p.value <- 2 * pt(-abs(tidy_model$statistic), df = stepwise_model$df.residual)
+
+significance_tags <- function(p) {
+  ifelse(p < 0.001, "***",  # Highly significant
+         ifelse(p < 0.01, "**",  # Significant
+                ifelse(p < 0.05, "*",  # Significant
+                  ifelse(p < 0.1, ".",  # Marginally significant
+                       "ns"))))  # Not significant
+}
+
+# Apply the function to the p-value vector
+tidy_model$significance_levels <- sapply(tidy_model$p.value, significance_tags)
+
+# Format using a custom function if necessary
+print(tidy_model, n=1000)
+
+# Create a new column that combines the variable, estimate, and significance
+tidy_model$formatted_output <- paste(tidy_model$term, 
+                                     sprintf("(%0.4f%s)", tidy_model$estimate, tidy_model$significance_levels),
+                                     sep = " ")
+
+# Print the formatted output with one variable per line
+cat(paste(tidy_model$formatted_output, collapse = "\n"))
+
+# Get the list of selected variables from the stepwise model
+selected_vars <- names(coef(stepwise_model))
+
+# Get the list of all variables in the full model
+all_vars <- names(coef(full_model))
+
+# Find the non-selected variables
+non_selected_vars <- setdiff(all_vars, selected_vars)
+
+# Print the non-selected variables
+print(non_selected_vars)
+```
+
+

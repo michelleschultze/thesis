@@ -1,17 +1,16 @@
 
 t test of coefficients:
 
-                                                         Estimate Std. Error  t value  Pr(>|t|)    
-(Intercept)                                            -63.525263   5.191016 -12.2375 < 2.2e-16 ***
-changeinindustrialproduction_all                         2.543334   1.310376   1.9409   0.05286 .  
-changeinindustrialproduction_manufacturing              -2.299854   1.003190  -2.2925   0.02231 *  
-log_total_pop                                            1.240089   0.121412  10.2139 < 2.2e-16 ***
-log_rural_pop                                            0.204840   0.044801   4.5722 6.162e-06 ***
-log_avg_nominal_gross_wages                              4.424076   0.359216  12.3159 < 2.2e-16 ***
-lag_changeinindustrialproduction_mineral_extraction     -0.360705   0.251233  -1.4357   0.15173    
-lag_changeinindustrialproduction_electricity_utilities   0.855840   0.638905   1.3395   0.18103    
-war                                                      1.376876   0.316186   4.3546 1.633e-05 ***
-postwar                                                 -0.901403   0.161261  -5.5897 3.836e-08 ***
+                                                   Estimate Std. Error t value  Pr(>|t|)    
+(Intercept)                                      -30.929356   3.546092 -8.7221 < 2.2e-16 ***
+log_total_pop                                      9.531658   3.413679  2.7922  0.005445 ** 
+log_city_pop                                       1.122226   0.503133  2.2305  0.026180 *  
+log_rural_pop                                      0.120789   0.026813  4.5049  8.36e-06 ***
+log_avg_nominal_gross_wages                        2.457082   0.266883  9.2066 < 2.2e-16 ***
+lag_changeinindustrialproduction_water_utilities  -0.539111   0.204465 -2.6367  0.008645 ** 
+lag_log_total_pop                                 -9.935128   3.540637 -2.8060  0.005221 ** 
+war                                               -0.405076   0.212086 -1.9100  0.056738 .  
+postwar                                           -0.323801   0.100868 -3.2101  0.001416 ** 
 ---
 Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 

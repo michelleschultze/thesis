@@ -1,0 +1,101 @@
+Merging covariates from TGE, Ramadan dummies, and Kyrgyzstan covariates.
+
+```{r}
+library(readr)
+library(tidyverse)
+TGEset1 <- read_csv("Documents/thesis/Macrodata/Raw macrodata/TGE covariates/28-03-25 04_05_06_theglobaleconomy.csv")
+TGEset2 <- read_csv("Documents/thesis/Macrodata/Raw macrodata/TGE covariates/28-03-25 04_05_55_theglobaleconomy.csv")
+```
+
+```{r}
+# Pivot longer to merge
+TGEset1_long <- TGEset1 %>%
+  dplyr::select(-Code, -ContinentCode) %>%  # Drop unnecessary columns
+  pivot_longer(cols = -c(Country, Year, Month),  # Pivot everything except these columns
+               names_to = "Variable", 
+               values_to = "Value")
+TGEset2_long <- TGEset2 %>%
+  dplyr::select(-Code, -ContinentCode) %>%  # Drop unnecessary columns
+  pivot_longer(cols = -c(Country, Year, Month),  # Pivot everything except these columns
+               names_to = "Variable", 
+               values_to = "Value")
+fulldata <- bind_rows(TGEset1_long, TGEset2_long)
+```
+
+Split into monthly and quarterly dataframes
+```{r}
+library(dplyr)
+
+# Generate summary statistics for each variable
+variable_summary <- fulldata %>%
+  filter(Country == "Kyrgyzstan") %>%
+  group_by(Variable) %>%
+  summarise(
+    First_Year = Year[which(!is.na(Value))[1]],
+    First_Month = Month[which(!is.na(Value))[1]],
+    Last_Year = Year[rev(which(!is.na(Value)))[1]],
+    Last_Month = Month[rev(which(!is.na(Value)))[1]],
+    Non_NA_Count = sum(!is.na(Value)),
+    Total_Months = (Last_Year - First_Year) * 12 + (Last_Month - First_Month + 1),
+    Q_m_diagnostic = Non_NA_Count/Total_Months
+  ) %>%
+  arrange(Variable)
+
+# Print summary table
+print(variable_summary)
+
+monthly_varsKGZ <- variable_summary %>%
+  filter(Q_m_diagnostic >= 0.95) %>%
+  pull(Variable)
+
+quarterly_varsKGZ <- variable_summary %>%
+  filter(Q_m_diagnostic < 0.95 & !is.na(Q_m_diagnostic)) %>%
+  pull(Variable)
+
+# Generate summary statistics for each variable
+variable_summary <- fulldata %>%
+  filter(Country == "Russia") %>%
+  group_by(Variable) %>%
+  summarise(
+    First_Year = Year[which(!is.na(Value))[1]],
+    First_Month = Month[which(!is.na(Value))[1]],
+    Last_Year = Year[rev(which(!is.na(Value)))[1]],
+    Last_Month = Month[rev(which(!is.na(Value)))[1]],
+    Non_NA_Count = sum(!is.na(Value)),
+    Total_Months = (Last_Year - First_Year) * 12 + (Last_Month - First_Month + 1),
+    Q_m_diagnostic = Non_NA_Count/Total_Months
+  ) %>%
+  arrange(Variable)
+
+# Print summary table
+print(variable_summary)
+
+monthly_varsRUS <- variable_summary %>%
+  filter(Q_m_diagnostic >= 0.95) %>%
+  pull(Variable)
+
+quarterly_varsRUS <- variable_summary %>%
+  filter(Q_m_diagnostic < 0.95 & !is.na(Q_m_diagnostic)) %>%
+  pull(Variable)
+
+monthly_df <- fulldata %>%
+  filter((Country == "Russia" & Variable %in% monthly_varsRUS) |
+         (Country == "Kyrgyzstan" & Variable %in% monthly_varsKGZ))  %>%
+  filter((Year >= 2009) &  # In or after Jan 2009
+         (Year < 2025 | (Year == 2024 & Month <= 9)))  # Before April 2025
+
+quarterly_df <- fulldata %>%
+  filter((Country == "Russia" & Variable %in% quarterly_varsRUS) |
+         (Country == "Kyrgyzstan" & Variable %in% quarterly_varsKGZ)) %>%
+  filter((Year >= 2009) &  # In or after Jan 2009
+         (Year < 2025 | (Year == 2024 & Month <= 9))) %>% # UPDATE WHEN THEY ADD MORE DATA 
+  filter(Month %% 3 == 0)  #keep only months divisible by three (quarterly)
+```
+
+```{r}
+write.csv(quarterly_df, "/Users/michelle/Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/TGE_quarterly_df.csv", row.names = FALSE)
+write.csv(monthly_df, "/Users/michelle/Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/TGE_monthly_df.csv", row.names = FALSE)
+
+```
+
+

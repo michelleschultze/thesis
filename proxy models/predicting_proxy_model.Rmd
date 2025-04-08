@@ -1,0 +1,71 @@
+In this file, we will use the full set of data to predict the proxy inflows, outflows, and net flows variables.
+
+Note: ChatGPT was used to generate some base code, but the code below is otherwise the author's own creation. 
+
+Load in packages:
+```{r}
+library(ggplot2)
+library(glmnet)
+library(dplyr)
+```
+
+Load in data:
+```{r}
+merged_data <- read.csv("/Users/michelle/Documents/thesis/merged_data.csv")
+final_inflow_model <- readRDS("~/Documents/thesis/proxy models/final_inflow_model.rds")
+```
+
+Removing the December 2017 entries:
+```{r}
+subset_data <- merged_data[merged_data$Year >= 2018 & merged_data$Year <= 2024, ]
+```
+
+Data handling/prep for the model:
+```{r}
+predictors <- subset_data[, c("Jumush", "Rabota", "log_Jumush", "log_Rabota", 
+                              "Work_ratio", "Work_diff", "Jumush_lag", "Rabota_lag",
+                              "Jumush_change_pct", "Rabota_change_pct", "Work_ratio_pct", 
+                              "t", "t2", "t3", "log_t", "exp_t", "sin_t")]
+
+# If the region is a factor, one-hot encode it:
+region_dummies <- model.matrix(~Region - 1, data = subset_data) 
+
+# Combine all predictor data (ensure they match model's features)
+final_predictors <- cbind(predictors, region_dummies)
+```
+
+Predict:
+```{r}
+predictions <- predict(final_inflow_model, newx = as.matrix(final_predictors), s = final_inflow_model$lambda, type = "response", se.fit = TRUE)
+```
+
+Extract point estimates:
+```{r}
+point_estimates <- predictions[, 1]
+```
+
+Plot point estimates (with and without region labels):
+```{r}
+#Adding labels for all regions
+ggplot(subset_data, aes(x = Year, y = point_estimates)) + 
+  geom_line(aes(color = Region)) + 
+  labs(title = "Predicted Inflows (2018-2024)", 
+       x = "Year", y = "Predicted Inflows") + 
+  theme_minimal() +
+  theme(legend.position = "none") +
+  geom_text(aes(label = Region),  # Add labels for each region
+            vjust = -0.5, hjust = 1.1, size = 3)  # Adjust position as needed
+
+ggsave("/Users/michelle/Documents/thesis/predicted_inflows_all_labeled.png", width = 10, height = 7.5, dpi = 300)
+
+#NO labels
+ggplot(subset_data, aes(x = Year, y = point_estimates)) + 
+  geom_line(aes(color = Region)) + 
+  labs(title = "Predicted Inflows (2018-2024)", 
+       x = "Year", y = "Predicted Inflows") + 
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+ggsave("/Users/michelle/Documents/thesis/predicted_inflows_all.png", width = 10, height = 7.5, dpi = 300)
+```
+

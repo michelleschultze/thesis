@@ -1,0 +1,790 @@
+Import and merge GT data, then we also run SARIMA models to nowcast quarterly visitors in the same file.
+Tuesday, February 25 2025
+
+This file will import the manually downloaded GT data, merge into a monthly series, and export (for later additions of covariates).
+
+- - - - - - - - - - - - - - - - - - - -
+
+Which variable do you want to test? 
+```{r}
+var_name <- 'transit travelers'
+
+#Options
+# 'total visitors, all types' 
+# 'business visitors' 
+# 'private travelers' *
+# 'transit travelers' * 
+
+#Doesn't run for some reason
+# 'permanent move' (low variation) 
+# 'vehicle maintenance personnel'
+```
+
+What criterion do you want to use?
+```{r}
+selected_k = 2
+
+#Options 
+# AIC: 2 
+# <2 for relaxed AIC (?)
+```
+
+Which threshold for VIF?
+```{r}
+vif_threshold = 10
+
+#5 is a good level to prevent multicollinearity from interfering
+#10 is most common and supposed to be less rigorous
+#both look very different
+#6.5 is in the middle but looks a lot like 10
+```
+
+
+
+
+
+```{r}
+library(forecast)
+library(tseries)
+library(readr)
+library(stringr)
+library(lubridate)
+library(dplyr)
+library(zoo)
+library(readxl)
+library(tidyverse)
+library(glmnet)
+library(sp)
+library(lmtest)
+library(sandwich)
+```
+
+
+```{r}
+# Define the directory containing the GT data
+data_dir <- "/Users/michelle/Documents/thesis/Search queries data/GT data/raw keyword data"
+
+# List all CSV files in the directory
+files <- list.files(data_dir, pattern = "\\.csv$", full.names = TRUE)
+
+# Initialize an empty list to store the dataframes
+data_list <- list()
+
+# Loop through each file, read the data, and process it
+for (file in files) {
+  # Extract the keyword (filename without extension) for the column name
+  keyword <- basename(file) %>% str_remove(".csv")
+  
+  # Read the CSV file
+  temp_df <- read_csv(file, skip = 1)  # Assuming the first row is not part of the actual data
+  
+  # Rename the columns: 'Month' and 'Frequency'
+  colnames(temp_df) <- c("Month", keyword)
+  
+  # Clean up the 'Month' column to ensure it's in a proper date format
+  temp_df$Month <- ym(temp_df$Month)
+  
+  # Group by 'Month' and summarize by taking the sum of frequencies (or use mean if needed)
+  temp_df <- temp_df %>%
+    group_by(Month) %>%
+    summarise(across(starts_with(keyword), mean, na.rm = TRUE))
+  
+  # Add this dataframe to the list
+  data_list[[keyword]] <- temp_df
+}
+
+# Merge all the dataframes in the list by the 'Month' column
+merged_df <- Reduce(function(x, y) full_join(x, y, by = "Month"), data_list)
+
+# View the merged dataframe
+head(merged_df)
+
+merged_df_copy <- merged_df
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# Convert monthly data to quarterly by summing values within each quarter
+quarterly_df <- merged_df_copy %>%
+  mutate(Quarter = floor_date(Month, "quarter")) %>%  # Assign each month to its quarter
+  group_by(Quarter) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE)) %>%  # Sum all numeric columns
+  ungroup()
+```
+
+```{r}
+# Loop through every column except 'Quarter'
+quarterly_df <- quarterly_df %>%
+  mutate(
+    # Create log_* columns for each numeric variable
+    across(.cols = -Quarter, .fns = ~ if_else(. > -1, log1p(.), NA_real_), .names = "log_{.col}")
+  )
+```
+
+```{r}
+# Generate ratio_* and diff_* variables
+quarterly_df <- quarterly_df %>%
+  mutate(
+    work_ratio = jumush / rabota,
+    #yunistream_ratio = yunistream_kyrgyzstan / yunistream, (this is 0/0 for many)
+    findwork_ratio = jumush_izdeim / poisk_raboti,
+    salary_ratio = ailyk / zarplata,
+    #zolotaya_korona_ratio = zolotaya_korona_kyrgyzstan / zolotaya_korona,  (this is 0/0 for many)
+    
+    # Generate diff_* variables with reversed order (Russia - Kyrgyzstan)
+    work_diff = rabota - jumush,
+    yunistream_diff = yunistream - yunistream_kyrgyzstan,
+    findwork_diff = poisk_raboti - jumush_izdeim,
+    salary_diff = zarplata - ailyk,
+    zolotaya_korona_diff = zolotaya_korona - zolotaya_korona_kyrgyzstan
+  )
+```
+
+```{r}
+# Loop through every column except 'Quarter'
+quarterly_df <- quarterly_df %>%
+  mutate(
+    
+    # Create lag_* columns for each numeric variable (including logs)
+    across(.cols = -Quarter, .fns = lag, .names = "lag_{.col}")
+  )
+```
+
+```{r}
+quarterly_df <- quarterly_df %>%
+  filter(Quarter >= ymd("2010-01-01"),
+         Quarter < ymd("2025-01-01")) 
+```
+
+Prep to merge the target variable into the dataframe
+```{r}
+inflows_quarterly <- read_excel("~/Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/QUARTERLY_MIGRANT_FLOWS_CLEANED.xls")
+
+# Pivot the data to long format
+inflows_quarterly <- inflows_quarterly %>%
+  pivot_longer(
+    cols = -`Type of Visitation`,  # Keep the "Type of Visitation" column as is
+    names_to = "Quarter",          # New column for quarter labels
+    values_to = "Value"            # New column for values
+  ) %>%
+  arrange(`Type of Visitation`, Quarter)
+
+# Pivot to wide format to make each visitation type a separate column
+inflows_quarterly <- inflows_quarterly %>%
+  pivot_wider(
+    names_from = `Type of Visitation`,  # Use visitation type as column names
+    values_from = Value                 # Fill with corresponding values
+  ) %>%
+  arrange(Quarter)
+
+# Convert Quarter to a date-like format (yearqtr from zoo)
+inflows_quarterly <- inflows_quarterly %>%
+  mutate(Quarter = as.yearqtr(Quarter, format = "%Y Q%q"))
+
+#Take only the total variable
+inflows_quarterly <- inflows_quarterly %>%
+  mutate(Kyrgyz_visitors = inflows_quarterly[[var_name]]) %>%
+  dplyr::select(Quarter, Kyrgyz_visitors)
+```
+
+
+Drop the levels to prevent heterosked. 
+```{r}
+cols_to_drop <- c(
+  "ailyk", "aviabilet_bishkek", "bilet_bishkek", "jumush_izdeim", "jumush", 
+  "perevodi_deneg", "poisk_raboti", "rabota", "vakansii", "yunistream", 
+  "zarplata", "zolotaya_korona",
+  "lag_ailyk", "lag_aviabilet_bishkek", "lag_bilet_bishkek", "lag_jumush_izdeim", "lag_jumush", 
+  "lag_perevodi_deneg", "lag_poisk_raboti", "lag_rabota", "lag_vakansii", "lag_yunistream", 
+  "lag_zarplata", "lag_zolotaya_korona"
+)
+
+quarterly_df <- quarterly_df[, !(names(quarterly_df) %in% cols_to_drop)]
+```
+
+
+Extending the time series
+
+1. Prepare the data (Ensure it's in quarterly format).
+2. Create seasonal dummies (if seasonality is present).
+3. Use stepwise AIC selection to choose the best covariates.
+4. Fit an ARIMA model incorporating the selected covariates.
+5. Generate forecasts to extend the time series.
+
+
+
+```{r}
+# Ensure data is quarterly
+quarterly_df <- quarterly_df %>%
+  mutate(Quarter = as.yearqtr(Quarter)) %>%
+  arrange(Quarter)
+
+quarterly_df_copy <- quarterly_df
+```
+
+```{r}
+# Merge datasets on "Quarter"
+quarterly_df <- inflows_quarterly %>%
+  left_join(quarterly_df, by = "Quarter") %>%
+  mutate(Kyrgyz_visitors = log(Kyrgyz_visitors))
+```
+
+Shorten the covariate series for estimation of the model
+```{r}
+quarterly_df_2010_16 <- quarterly_df %>%
+  filter(!is.na(Kyrgyz_visitors)) %>%
+  filter(complete.cases(.))  # Remove rows with NA in any of the predictors
+```
+
+```{r}
+y_full <- quarterly_df_2010_16$Kyrgyz_visitors
+```
+
+Dickey-Fuller Test
+```{r}
+# Load necessary package
+library(urca)
+
+# Perform the Augmented Dickey-Fuller (ADF) test
+adf_test <- ur.df(y_full, type = "trend", selectlags = "AIC")
+
+# Print test results
+summary(adf_test)
+
+# Extract relevant components from the test result
+test_statistic <- adf_test@teststat
+p_value <- adf_test@cval  # Critical values, can be used for comparison
+
+# Create a data frame with the extracted values
+adf_results_df <- data.frame(
+  Test_Statistic = test_statistic,
+  Critical_Values_1pct = p_value[1],  # 1% critical value
+  Critical_Values_5pct = p_value[2],  # 5% critical value
+  Critical_Values_10pct = p_value[3], # 10% critical value
+  stringsAsFactors = FALSE
+)
+
+# Save the data frame to a CSV file
+write.csv(adf_results_df, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/adf_test.csv", row.names = FALSE)
+```
+Stationary!! We can just apply SARIMA and not have to worry about stationarity
+
+Prep quarterly_df_2010_16
+```{r}
+quarterly_df_2010_16 <- quarterly_df_2010_16 %>%
+  dplyr::select(-Quarter) %>%
+  dplyr::mutate_all(as.numeric)
+```
+
+
+Optional: remove "change in economic growth" variable because that would bias the results with huge shocks.
+```{r}
+# Remove any columns whose names contain the target string
+quarterly_df_2010_16 <- quarterly_df_2010_16[, !grepl("Economic_growth_percent_change_in_quarterly_real_GDP", names(quarterly_df_2010_16))]
+```
+
+
+Measure Granger causality and take the 11 most promising variables. 
+```{r}
+library(lmtest)
+library(tidyverse)
+
+# Define the dependent variable (adjust as needed)
+target_var <- "Kyrgyz_visitors"
+
+# Prepare results storage
+granger_results <- list()
+
+# Convert results to a dataframe
+granger_df <- data.frame(
+  Variable = names(granger_results),
+  p_value = unlist(granger_results)
+) %>%
+  arrange(p_value)  # Sort by significance
+
+# Display the top most significant variables
+top_vars <- granger_df %>% slice(1:18)
+print(top_vars)
+
+#update the full set 
+quarterly_df_selected <- quarterly_df_copy %>% 
+  dplyr::select(Quarter, all_of(top_vars$Variable)) %>%
+  head(n=28)
+```
+
+
+```{r}
+# Install and load the necessary package for VIF calculation
+# install.packages("car")  # Uncomment if not already installed
+library(car)
+
+# Calculate VIF for each variable in the dataframe
+vif_values <- vif(lm(y_full ~ ., data = quarterly_df_selected %>% dplyr::select(-Quarter)))
+
+# Set a threshold for high VIF (commonly 5 or 10)
+high_vif_threshold <- 500
+
+# Identify high VIF variables (those above the threshold)
+high_vif_vars <- names(vif_values[vif_values > high_vif_threshold])
+
+# Remove high VIF variables from the dataframe
+quarterly_df_selected <- quarterly_df_selected[, !(names(quarterly_df_selected) %in% high_vif_vars)]
+
+# Check the cleaned dataframe
+head(quarterly_df_selected)
+```
+
+
+```{r}
+# Perform stepwise selection on covariates
+library(MASS)
+stepwise_covariates <- stepAIC(lm(y_full ~ ., data = quarterly_df_selected %>% dplyr::select(-Quarter)), direction = "both")
+selected_covariates_names <- names(coef(stepwise_covariates))[names(coef(stepwise_covariates)) != "(Intercept)"]
+
+# Ensure that the 'Quarter' column is included and select only the relevant columns
+quarterly_df_selected <- quarterly_df_selected %>%
+  dplyr::select(all_of(c(selected_covariates_names, "Quarter")))
+```
+
+```{r}
+acf(y_full)
+pacf(y_full)
+```
+
+```{r}
+# Convert covariates to time series
+covariates_ts <- ts(quarterly_df_selected[, -which(names(quarterly_df_selected) == "Quarter")], frequency = 4)
+covariates_ts_full <- ts(quarterly_df_copy[, names(quarterly_df_selected %>% dplyr::select(-Quarter))][29:60, ], frequency = 4)
+
+# Step 1: Fit ARIMA model with seasonal effects using stepwise AIC
+# Note: We specify AR(4) and allow stepwise search for the best combination of AR/MA and seasonal components
+arima_model <- auto.arima(y_full, xreg = covariates_ts, seasonal = TRUE, stepwise = TRUE, 
+                          approximation = FALSE, max.p = 4, max.q = 2, max.P = 1, max.Q = 1, max.D = 1)
+
+# Summary of the ARIMA model
+summary(arima_model)
+
+# Step 2: Retrieve model coefficients and diagnostics
+coefficients <- coef(arima_model)
+print(coefficients)
+
+# Step 3: Generate the forecast for the future periods (assuming forecast_period is defined)
+forecast_period <- 32  # Example for 32 quarters ahead
+forecast_vals <- forecast(arima_model, xreg = covariates_ts_full, h = forecast_period)
+
+
+
+# Extract ARIMA model coefficients
+arima_coefs <- coef(arima_model)
+
+# Convert to a data frame 
+arima_coefs_df <- data.frame(Term = names(arima_coefs), Estimate = as.numeric(arima_coefs))
+
+# Export to CSV
+write.csv(arima_coefs_df, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/arima_model_coefficients_mdlA.csv", row.names = FALSE)
+```
+
+```{r}
+# Assuming that the date of war begins (Feb 24, 2022) and Crocus Hall attacks (Mar 22, 2024) 
+# can be mapped to the corresponding quarters in your time series.
+# Let's assume the start of your time series is in 2010, and the time series has quarterly data.
+
+dev.off()
+
+png("/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_A_forecast_plot.png", width = 1000, height = 800)  # Set the file name and dimensions
+
+# Convert the date "war begins" and "Crocus Hall attacks" to the corresponding quarter index
+war_start_date <- as.Date("2022-02-24")
+crocus_attack_date <- as.Date("2024-03-22")
+
+# Get the corresponding index for the dates in the time series (convert to quarters)
+start_date <- as.Date("2010-01-01")  # Adjust if your time series starts at a different date
+
+# Calculate the number of quarters between the start date and the event dates
+war_quarter_index <- as.integer((difftime(war_start_date, start_date, units = "days") / 365.25) * 4)
+crocus_quarter_index <- as.integer((difftime(crocus_attack_date, start_date, units = "days") / 365.25) * 4)
+
+# Step 4: Plot the forecast
+plot(forecast_vals)
+
+# Add vertical lines for key events
+abline(v = war_quarter_index, col = "red", lwd = 2, lty = 2)  # Red dashed line for "War Begins"
+abline(v = crocus_quarter_index, col = "blue", lwd = 2, lty = 2)  # Blue dashed line for "Crocus Hall Attacks"
+
+# Add text annotations for the events
+text(war_quarter_index, max(forecast_vals$mean), labels = "War Begins (Feb 2022)", pos = 2, col = "red")
+text(crocus_quarter_index, max(forecast_vals$mean) + 0.15 * diff(range(forecast_vals$mean)), 
+     labels = "Crocus Hall Attacks (Mar 2024)", pos = 2, col = "blue")
+
+dev.off()
+```
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(sandwich)
+
+# Print model summary
+summary(arima_model)
+
+# Extract coefficients
+coefficients <- coef(arima_model)
+
+# Get the variance-covariance matrix for robust standard errors
+robust_vcov <- vcov(arima_model, type = "HC3")
+
+# Compute the robust standard errors
+robust_se <- sqrt(diag(robust_vcov))
+
+# Combine coefficients and robust standard errors into a table
+coeff_table <- data.frame(
+  Coefficients = coefficients,
+  Robust_SE = robust_se
+)
+
+# Print the coefficient table with robust standard errors
+print(coeff_table)
+write.csv(coeff_table, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_A_table.csv", row.names = FALSE)
+```
+
+
+```{r}
+write.csv(forecast_vals, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_A_forecastvals.csv", row.names = FALSE)
+```
+
+
+
+## Add in the covariates
+
+```{r}
+library(readr)
+TGE_quarterly_df_orig <- read_csv("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/TGE_quarterly_df.csv") %>%
+  mutate(Quarter = Month) %>%
+  dplyr::select(Country, Year, Quarter, Variable, Value)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+
+# Update the column names based on the country
+TGE_quarterly_df_orig <- TGE_quarterly_df_orig %>%
+  mutate(
+    Variable = paste(Variable, if_else(Country == "Kyrgyzstan", "_KGZ", "_RUS"), sep = "")
+  ) %>%
+  dplyr::select(-Country)  # Drop the Country column
+
+TGE_quarterly_df_orig <- TGE_quarterly_df_orig %>%
+  mutate(Quarter = Quarter/3) %>%
+  mutate(Quarter = paste(Year, " Q", Quarter, sep=""))  # Combine Year and Quarter as "2010 Q1"
+
+# Pivot the data wider
+TGE_quarterly_wide_df <- TGE_quarterly_df_orig %>%
+  pivot_wider(names_from = Variable, values_from = Value) %>%
+  arrange(Quarter) %>%
+  dplyr::select(-Year) # Ensure data is sorted by Quarter
+
+colnames(TGE_quarterly_wide_df) <- gsub(" ", "_", colnames(TGE_quarterly_wide_df))
+colnames(TGE_quarterly_wide_df) <- gsub("-", "_", colnames(TGE_quarterly_wide_df))
+
+TGE_quarterly_wide_df <- TGE_quarterly_wide_df %>%
+  mutate(Consumer_confidence_survey_RUS = -Consumer_confidence_survey_RUS) %>%
+  dplyr::select(-Retail_sales_Y_on_Y_KGZ)
+
+# Convert the 'Quarter' column in TGE_quarterly_wide_df to yearqtr format
+TGE_quarterly_wide_df$Quarter <- as.yearqtr(TGE_quarterly_wide_df$Quarter, format = "%Y Q%q")
+
+# Find column names that contain any of the specified terms
+columns_with_terms <- grep("ratio|pct|percent|changein|change_in", colnames(TGE_quarterly_wide_df), ignore.case = TRUE, value = TRUE)
+
+TGE_quarterly_wide_df_altered <- TGE_quarterly_wide_df %>%
+  mutate(across(where(~ is.numeric(.) && all(. >= 0, na.rm = TRUE)), 
+                ~ log(.), 
+                .names = "log_{.col}")) 
+
+# Remove the specified columns by name
+TGE_quarterly_wide_df_altered <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(
+    -log_Consumption_as_percent_of_GDP_KGZ,
+    -log_Investment_as_percent_of_GDP_KGZ,
+    -log_Consumption_as_percent_of_GDP_RUS,
+    -log_Investment_as_percent_of_GDP_RUS,
+    -log_Debt_service_ratios_for_private_non_financial_sector_RUS,
+    -log_Household_debt_to_GDP_in_percent_RUS
+  )
+
+# Remove the specified columns by name
+TGE_quarterly_wide_df_altered <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(
+    -GDP_billion_currency_units_KGZ,
+    -Household_consumption_billion_currency_units_KGZ,
+    -Investment_billion_currency_units_KGZ,
+    -Government_expenditure_billion_currency_units_KGZ,
+    -GDP_billion_currency_units_RUS,
+    -House_price_index_RUS,
+    -Consumer_confidence_survey_RUS,
+    -Household_consumption_billion_currency_units_RUS,
+    -Investment_billion_currency_units_RUS,
+    -Government_expenditure_billion_currency_units_RUS,
+  )
+
+# Apply each lag separately
+lag_1_df <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(Quarter, where(is.numeric)) %>%
+  mutate(across(where(is.numeric), 
+                ~ lag(., 1), 
+                .names = "lag1_{.col}"))
+
+lag_2_df <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(Quarter, where(is.numeric)) %>%
+  mutate(across(where(is.numeric), 
+                ~ lag(., 2), 
+                .names = "lag2_{.col}")) %>%
+  dplyr::select(matches("^lag2_"))
+
+lag_3_df <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(Quarter, where(is.numeric)) %>%
+  mutate(across(where(is.numeric), 
+                ~ lag(., 3), 
+                .names = "lag3_{.col}")) %>%
+  dplyr::select(matches("^lag3_"))
+
+lag_4_df <- TGE_quarterly_wide_df_altered %>%
+  dplyr::select(Quarter, where(is.numeric)) %>%
+  mutate(across(where(is.numeric), 
+                ~ lag(., 4), 
+                .names = "lag4_{.col}")) %>%
+  dplyr::select(matches("^lag4_"))
+
+TGE_quarterly_wide_df_altered <- cbind(lag_1_df, lag_2_df, lag_3_df, lag_4_df)
+
+TGE_quarterly_wide_df_altered <- TGE_quarterly_wide_df_altered %>% 
+  slice(-c(1:4))
+
+# Merge the two dataframes by the 'Quarter' column
+merged_df <- merge(TGE_quarterly_wide_df_altered, quarterly_df_copy, by = "Quarter") 
+
+merged_df <- merged_df %>%
+  filter(Quarter <= as.yearqtr("2024 Q3")) %>% 
+  dplyr::select(where(~ !any(is.na(.))))
+```
+
+```{r}
+# Ensure data is quarterly
+quarterly_df <- merged_df %>%
+  mutate(Quarter = as.yearqtr(Quarter)) %>%
+  arrange(Quarter)
+
+quarterly_df_copy <- quarterly_df
+```
+
+```{r}
+# Merge datasets on "Quarter"
+quarterly_df <- inflows_quarterly %>%
+  left_join(quarterly_df, by = "Quarter") %>%
+  mutate(Kyrgyz_visitors = log(Kyrgyz_visitors))
+```
+
+Shorten the covariate series for estimation of the model
+```{r}
+quarterly_df_2010_16 <- quarterly_df %>%
+  filter(!is.na(Kyrgyz_visitors)) %>%
+  filter(complete.cases(.))  # Remove rows with NA in any of the predictors
+```
+
+```{r}
+y_full <- quarterly_df_2010_16$Kyrgyz_visitors
+```
+
+Prep quarterly_df_2010_16
+```{r}
+quarterly_df_2010_16 <- quarterly_df_2010_16 %>%
+  dplyr::select(-Quarter) %>%
+  dplyr::mutate_all(as.numeric)
+```
+
+Optional: remove "change in economic growth" variable because that would bias the results with huge shocks.
+```{r}
+# Remove any columns whose names contain the target string
+quarterly_df_2010_16 <- quarterly_df_2010_16[, !grepl("Economic_growth_percent_change_in_quarterly_real_GDP", names(quarterly_df_2010_16))]
+```
+
+Measure Granger causality and take the 10 most promising variables. 
+```{r}
+library(lmtest)
+library(tidyverse)
+
+# Define the dependent variable (adjust as needed)
+target_var <- "Kyrgyz_visitors"
+
+# Prepare results storage
+granger_results <- list()
+
+# Loop through all other variables to test Granger causality
+for (var in setdiff(names(quarterly_df_2010_16), target_var)) {
+  formula <- as.formula(paste(target_var, "~", var))
+  
+  try({
+    test_result <- grangertest(reformulate(var, response = target_var), 
+                               order = 1, 
+                               data = quarterly_df_2010_16)
+    
+    p_value <- test_result$`Pr(>F)`[2]  # Extract p-value from second row
+    granger_results[[var]] <- p_value
+  }, silent = TRUE)
+}
+
+# Convert results to a dataframe
+granger_df <- data.frame(
+  Variable = names(granger_results),
+  p_value = unlist(granger_results)
+) %>%
+  arrange(p_value)  # Sort by significance
+
+# Display the top most significant variables
+top_vars <- granger_df %>% slice(1:18)
+print(top_vars)
+
+#update the full set 
+quarterly_df_selected <- quarterly_df_copy %>% 
+  dplyr::select(Quarter, all_of(top_vars$Variable)) %>%
+  head(n=28)
+```
+
+
+```{r}
+# Install and load the necessary package for VIF calculation
+# install.packages("car")  # Uncomment if not already installed
+library(car)
+
+# Calculate VIF for each variable in the dataframe
+vif_values <- vif(lm(y_full ~ ., data = quarterly_df_selected %>% dplyr::select(-Quarter)))
+
+# Set a threshold for high VIF (commonly 5 or 10)
+high_vif_threshold <- 500
+
+# Identify high VIF variables (those above the threshold)
+high_vif_vars <- names(vif_values[vif_values > high_vif_threshold])
+
+# Remove high VIF variables from the dataframe
+quarterly_df_selected <- quarterly_df_selected[, !(names(quarterly_df_selected) %in% high_vif_vars)]
+
+# Check the cleaned dataframe
+head(quarterly_df_selected)
+```
+
+
+```{r}
+# Perform stepwise selection on covariates
+library(MASS)
+stepwise_covariates <- stepAIC(lm(y_full ~ ., data = quarterly_df_selected %>% dplyr::select(-Quarter)), direction = "both")
+selected_covariates_names <- names(coef(stepwise_covariates))[names(coef(stepwise_covariates)) != "(Intercept)"]
+
+# Ensure that the 'Quarter' column is included and select only the relevant columns
+quarterly_df_selected <- quarterly_df_selected %>%
+  dplyr::select(all_of(c(selected_covariates_names, "Quarter")))
+```
+
+
+```{r}
+# Convert covariates to time series
+covariates_ts <- ts(quarterly_df_selected[, -which(names(quarterly_df_selected) == "Quarter")], frequency = 4)
+covariates_ts_full <- ts(quarterly_df_copy[, names(quarterly_df_selected %>% dplyr::select(-Quarter))][29:59, ], frequency = 4)
+
+# Step 1: Fit ARIMA model with seasonal effects using stepwise AIC
+# Note: We specify AR(4) and allow stepwise search for the best combination of AR/MA and seasonal components
+arima_model <- auto.arima(y_full, xreg = covariates_ts, seasonal = TRUE, stepwise = TRUE, 
+                          approximation = FALSE, max.p = 4, max.q = 4, max.P = 1, max.Q = 1, max.D = 1)
+
+# Summary of the ARIMA model
+summary(arima_model)
+
+# Step 2: Retrieve model coefficients and diagnostics
+coefficients <- coef(arima_model)
+print(coefficients)
+
+# Step 3: Generate the forecast for the future periods (assuming forecast_period is defined)
+forecast_period <- 31  # Example for 32 quarters ahead
+forecast_vals <- forecast(arima_model, xreg = covariates_ts_full, h = forecast_period)
+
+
+
+# Extract ARIMA model coefficients
+arima_coefs <- coef(arima_model)
+
+# Convert to a data frame
+arima_coefs_df <- data.frame(Term = names(arima_coefs), Estimate = as.numeric(arima_coefs))
+
+# Export to CSV
+write.csv(arima_coefs_df, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/arima_model_coefficients_mdlB.csv", row.names = FALSE)
+```
+
+```{r}
+# Assuming that the date of war begins (Feb 24, 2022) and Crocus Hall attacks (Mar 22, 2024) 
+# can be mapped to the corresponding quarters in your time series.
+# Let's assume the start of your time series is in 2010, and the time series has quarterly data.
+
+png("/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_B_forecast_plot.png", width = 1000, height = 800)  # Set the file name and dimensions
+
+# Convert the date "war begins" and "Crocus Hall attacks" to the corresponding quarter index
+war_start_date <- as.Date("2022-02-24")
+crocus_attack_date <- as.Date("2024-03-22")
+
+# Get the corresponding index for the dates in the time series (convert to quarters)
+start_date <- as.Date("2010-01-01")  # Adjust if your time series starts at a different date
+
+# Calculate the number of quarters between the start date and the event dates
+war_quarter_index <- as.integer((difftime(war_start_date, start_date, units = "days") / 365.25) * 4)
+crocus_quarter_index <- as.integer((difftime(crocus_attack_date, start_date, units = "days") / 365.25) * 4)
+
+# Step 4: Plot the forecast
+plot(forecast_vals)
+
+# Add vertical lines for key events
+abline(v = war_quarter_index, col = "red", lwd = 2, lty = 2)  # Red dashed line for "War Begins"
+abline(v = crocus_quarter_index, col = "blue", lwd = 2, lty = 2)  # Blue dashed line for "Crocus Hall Attacks"
+
+# Add text annotations for the events
+text(war_quarter_index, max(forecast_vals$mean), labels = "War Begins (Feb 2022)", pos = 2, col = "red")
+text(crocus_quarter_index, max(forecast_vals$mean) + 0.15 * diff(range(forecast_vals$mean)), 
+     labels = "Crocus Hall Attacks (Mar 2024)", pos = 2, col = "blue")
+
+dev.off()
+```
+
+```{r}
+# Load necessary libraries
+library(forecast)
+library(sandwich)
+
+# Print model summary 
+summary(arima_model)
+
+# Extract coefficients
+coefficients <- coef(arima_model)
+
+# Get the variance-covariance matrix for robust standard errors
+robust_vcov <- vcov(arima_model, type = "HC3")
+
+# Compute the robust standard errors
+robust_se <- sqrt(diag(robust_vcov))
+
+# Combine coefficients and robust standard errors into a table
+coeff_table <- data.frame(
+  Coefficients = coefficients,
+  Robust_SE = robust_se
+)
+
+# Print the coefficient table with robust standard errors
+print(coeff_table)
+write.csv(coeff_table, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_B_table.csv", row.names = FALSE)
+```
+
+
+```{r}
+write.csv(forecast_vals, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_B_forecastvals.csv", row.names = FALSE)
+```
+

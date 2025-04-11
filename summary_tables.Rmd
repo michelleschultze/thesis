@@ -17,7 +17,8 @@ Load in data (region-year).
 ```{r}
 ry_merged_data <- read_csv("region-year-data.csv") %>%
   filter(Year >= 2021,
-         Region != "Russian Federation")
+         Region != "Russian Federation") %>%
+  dplyr::select(-contains("_average"))  # Remove columns containing "_average"
 
 # Coerce all columns except Region and Year to numeric
 ry_merged_data <- ry_merged_data %>%
@@ -27,7 +28,7 @@ ry_merged_data <- ry_merged_data %>%
 Summary statistics (region-year).
 ```{r}
 summary_table <- ry_merged_data %>%
-  select(-Region, -Year) %>%
+  dplyr::select(-Region, -Year) %>%
   summarise(across(everything(), list(
     Mean = ~mean(., na.rm = TRUE),
     SD = ~sd(., na.rm = TRUE),
@@ -41,14 +42,14 @@ summary_table <- ry_merged_data %>%
 
 #Table
 kable_out <- summary_table %>%
-  kable("html", caption = "Summary Statistics for Region-by-Year variables, 2021-24", digits = 2) %>%
+  kable("html", caption = "Summary Statistics for Region-by-Year variables", digits = 2) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
                 full_width = F, 
                 position = "center") %>%
   column_spec(1, bold = T) %>%
   add_header_above(c(" " = 1, "Statistics" = 5))
 
-save_kable(kable_out, "summary_statistics.html")
+save_kable(kable_out, "summary_statistics_regional-yearly.html")
 ```
 
 Correlation matrix (region-year)
@@ -59,7 +60,7 @@ library(dplyr)
 
 # Prepare data: Remove Region and Year columns
 data_for_cointegration <- ry_merged_data %>%
-  select(-Region, -Year)
+  dplyr::select(-Region, -Year)
 
 # Drop rows with missing values
 data_for_cointegration <- data_for_cointegration %>% drop_na()
@@ -68,7 +69,7 @@ cor_matrix <- cor(data_for_cointegration, use = "complete.obs")
 print(cor_matrix)
 
 # Save the kable as an HTML file
-save_kable(kable(cor_matrix, caption = "Correlation Matrix of Variables", format = "html"), "correlation_matrix.html")
+save_kable(kable(cor_matrix, caption = "Correlation Matrix of Variables: Region-by-Year", format = "html"), "correlation_matrix_regional-yearly.html")
 ```
 
 Find perfectly correlated pairs
@@ -86,5 +87,3 @@ perfectly_correlated_vars <- apply(perfectly_correlated, 1, function(x) colnames
 perfectly_correlated_vars
 ```
 
-Seems like nothing is perfectly correlated except for with itself and the absolute count variables between sum/average aggregation methods. 
-This shouldn't be an issue because the methods will simply select one or none, but we'll keep in mind that we can drop the average variable if it causes issues. 

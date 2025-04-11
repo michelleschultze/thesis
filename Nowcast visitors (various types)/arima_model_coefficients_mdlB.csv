@@ -1,6 +1,12 @@
 "Term","Estimate"
-"intercept",13.1852791993467
-"lag2_log_GDP_billion_currency_units_KGZ",-0.14858697865606
-"Consumption_as_percent_of_GDP_RUS",-0.0564433478689641
-"lag3_log_GDP_billion_currency_units_KGZ",0.390053783546449
-"lag1_Household_debt_to_GDP_in_percent_RUS",0.056998729679186
+"ar1",-0.998417994316606
+"ar2",-0.543660509104233
+"lag_log_vakansii",1.01390069139381
+"log_Consumer_confidence_survey_RUS",0.239972848858934
+"lag3_Debt_service_ratios_for_private_non_financial_sector_RUS",-0.0745504490457573
+"Investment_as_percent_of_GDP_RUS",-0.0400590551317714
+"lag4_Investment_as_percent_of_GDP_KGZ",0.0282135568273323
+"lag4_log_GDP_billion_currency_units_KGZ",0.924250225506049
+"lag1_Debt_service_ratios_for_private_non_financial_sector_RUS",-0.0733081816062506
+"log_jumush",-0.0910567699192936
+"log_jumush_izdeim",-0.117362574844025

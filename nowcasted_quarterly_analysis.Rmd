@@ -9,6 +9,8 @@ library(zoo)
 library(sandwich)
 library(lmtest)
 library(MASS)
+
+setwd("/Users/michelle/")
 ```
 
 Load in / merge data
@@ -363,3 +365,5 @@ print(all_results)
 
 write.csv(all_results, file = "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdlB_regression_results.csv", row.names = TRUE)
 ```
+
+

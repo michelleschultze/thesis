@@ -18,6 +18,7 @@ library(stargazer)
 
 Data load in
 ```{r}
+setwd("/Users/michelle/")
 vertdata <- read_excel("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/MONTHLY COVARIATES.xlsx", 
     sheet = "vertical")
 horizdata <- read_excel("Documents/thesis/Macrodata/Cleaned macrodata (intermediate)/MONTHLY COVARIATES.xlsx", 
@@ -342,7 +343,7 @@ BIG QUESTION: WHAT DO I WANT TO TEST?
 
 ```{r}
 fulldata <- fulldata %>%
-  dplyr::select(Month, Ramadan_starts, Eid_al_Fitr, Eid_al_Adha, war, post_war, crocus, post_crocus, covid, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec, time_trend, log_Remittances_fromRus, log_mediazona, `log_Consumer_Price_Index_(CPI)_KGZ`, `log_Consumer_Price_Index_(CPI)_RUS`)
+  dplyr::select(Month, Ramadan_starts, Eid_al_Fitr, Eid_al_Adha, war, post_war, crocus, post_crocus, covid, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec, time_trend, log_Remittances_fromRus, log_mediazona, `log_Consumer_Price_Index_(CPI)_KGZ`, `log_Consumer_Price_Index_(CPI)_RUS`, log_KGZ_BRE_RUBLE, log_KGZ_REER_EAEU)
 ```
 
 Lags
@@ -409,7 +410,7 @@ fulldata_with_lags <- fulldata_with_lags %>%
 
 
 
-# Reg 1
+# Reg 1 - basic
 
 ```{r}
 # Load necessary libraries
@@ -417,7 +418,7 @@ library(sandwich)
 library(lmtest)
 
 initial_model <- lm(log_Remittances_fromRus ~  
-                    Month +  time_trend +
+                    Month +  time_trend + 
                     Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
                     data = fulldata_with_lags)
 
@@ -586,6 +587,187 @@ write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressi
 
 
 
+
+
+
+# Reg 1 - exchange rate
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_KGZ_BRE_RUBLE  +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1_EXR.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_KGZ_BRE_RUBLE +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2_EXR.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_KGZ_BRE_RUBLE + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona + log_mediazona_lag1 + log_mediazona_lag2 + log_mediazona_lag3 + log_mediazona_lag4 + log_mediazona_lag5 + log_mediazona_lag6 + log_mediazona_lag7 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3_EXR.csv", row.names = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+# Reg 1 — control for CPI + exchange rate
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month + time_trend + log_KGZ_BRE_RUBLE +  `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1REAL_EXR.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + log_KGZ_BRE_RUBLE +  `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2REAL_EXR.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + log_KGZ_BRE_RUBLE + `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona + log_mediazona_lag1 + log_mediazona_lag2 + log_mediazona_lag3 + log_mediazona_lag4 + log_mediazona_lag5 + log_mediazona_lag6 + log_mediazona_lag7 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3REAL_EXR.csv", row.names = TRUE)
+```
+
+
+
+
 #Add in wage data 
 
 
@@ -695,7 +877,7 @@ BIG QUESTION: WHAT DO I WANT TO TEST?
 
 ```{r}
 fulldata <- fulldata %>%
-  dplyr::select(Month, Ramadan_starts, Eid_al_Fitr, Eid_al_Adha, war, post_war, crocus, post_crocus, covid, time_trend, log_Remittances_fromRus, log_mediazona, `log_Consumer_Price_Index_(CPI)_KGZ`, `log_Consumer_Price_Index_(CPI)_RUS`, log_avg_nominal_gross_wages_RUSall, log_avg_nominal_gross_wages_RUSmoscowoblast, log_avg_nominal_gross_wages_RUSmoscowcity, log_avg_nominal_gross_wages_RUSpetersburgscity, log_avg_nominal_gross_wages_RUSnizhninovoblast, log_avg_nominal_gross_wages_RUSchelyabinskoblast, log_avg_nominal_gross_wages_RUSsakha, log_avg_nominal_gross_wages_RUSsakhalin, log_avg_nominal_gross_wages_RUSkrasnoyarsk, log_avg_nominal_gross_wages_RUStyumenoblast)
+  dplyr::select(Month, Ramadan_starts, Eid_al_Fitr, Eid_al_Adha, war, post_war, crocus, post_crocus, covid, time_trend, log_Remittances_fromRus, log_mediazona, `log_Consumer_Price_Index_(CPI)_KGZ`, `log_Consumer_Price_Index_(CPI)_RUS`, log_avg_nominal_gross_wages_RUSall, log_avg_nominal_gross_wages_RUSmoscowoblast, log_avg_nominal_gross_wages_RUSmoscowcity, log_avg_nominal_gross_wages_RUSpetersburgscity, log_avg_nominal_gross_wages_RUSnizhninovoblast, log_avg_nominal_gross_wages_RUSchelyabinskoblast, log_avg_nominal_gross_wages_RUSsakha, log_avg_nominal_gross_wages_RUSsakhalin, log_avg_nominal_gross_wages_RUSkrasnoyarsk, log_avg_nominal_gross_wages_RUStyumenoblast, log_KGZ_BRE_RUBLE, log_KGZ_REER_EAEU)
 ```
 
 Lags
@@ -947,4 +1129,481 @@ print(output_stepwise)
 
 write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3REAL_WAGECONTROL.csv", row.names = TRUE)
 ```
+
+
+
+
+
+
+
+
+# Reg 1 — control for CPI
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month + time_trend +  `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` +
+                      log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1REAL_WAGECONTROL.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2REAL_WAGECONTROL.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona + log_mediazona_lag2 + log_mediazona_lag4 + log_mediazona_lag6 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3REAL_WAGECONTROL.csv", row.names = TRUE)
+```
+
+
+
+
+
+
+
+
+# Reg 1
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1_WAGECONTROL.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2_WAGECONTROL.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona  + log_mediazona_lag2  + log_mediazona_lag4  + log_mediazona_lag6 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3_WAGECONTROL.csv", row.names = TRUE)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Reg 1 — control for CPI
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month + time_trend +  `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` +
+                      log_avg_nominal_gross_wages_RUSmoscowoblast + log_KGZ_BRE_RUBLE + 
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1REAL_WAGECONTROL_EXR.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` + log_avg_nominal_gross_wages_RUSmoscowoblast + log_KGZ_BRE_RUBLE + 
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2REAL_WAGECONTROL_EXR.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month  + time_trend + `log_Consumer_Price_Index_(CPI)_RUS` + `log_Consumer_Price_Index_(CPI)_KGZ` + log_avg_nominal_gross_wages_RUSmoscowoblast + log_KGZ_BRE_RUBLE + 
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona + log_mediazona_lag2 + log_mediazona_lag4 + log_mediazona_lag6 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3REAL_WAGECONTROL_EXR.csv", row.names = TRUE)
+```
+
+
+
+
+
+
+
+
+# Reg 1
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + log_KGZ_BRE_RUBLE + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_1_WAGECONTROL_EXR.csv", row.names = TRUE)
+```
+
+
+
+# Reg 2
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + log_KGZ_BRE_RUBLE +
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_2_WAGECONTROL_EX.csv", row.names = TRUE)
+```
+
+
+
+
+# Reg 3
+
+```{r}
+# Load necessary libraries
+library(sandwich)
+library(lmtest)
+
+initial_model <- lm(log_Remittances_fromRus ~  
+                    Month +  time_trend + log_avg_nominal_gross_wages_RUSmoscowoblast +
+                      log_avg_nominal_gross_wages_RUSsakha + log_avg_nominal_gross_wages_RUSsakhalin + 
+                      log_avg_nominal_gross_wages_RUSall + log_KGZ_BRE_RUBLE + 
+                    Ramadan_starts + Eid_al_Fitr + Eid_al_Adha + covid +  
+                    crocus + post_crocus + war + post_war + 
+                    log_mediazona  + log_mediazona_lag2  + log_mediazona_lag4  + log_mediazona_lag6 + log_mediazona_lag8 - 1,  
+                    data = fulldata_with_lags)
+
+# Perform stepwise regression based on BIC
+stepwise_model <- step(initial_model, direction = "both", k = log(nrow(fulldata_with_lags)))
+
+# Compute HC3 robust standard errors for the stepwise model
+robust_se_stepwise <- sqrt(diag(vcovHC(stepwise_model, type = "HC3")))
+
+# Print the regression results with HC3 robust standard errors
+output_stepwise <- coeftest(stepwise_model, vcov = vcovHC(stepwise_model, type = "HC3"))
+print(output_stepwise)
+
+write.csv(output_stepwise, "/Users/michelle/Documents/thesis/remittance regressions/output_stepwise_3_WAGECONTROL_EXR.csv", row.names = TRUE)
+
+```
+
+
+
+
+
+
+# SUMMARY STATS
+
+
+
+Load in libraries.
+```{r libraries}
+library(readr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(webshot2) 
+library(magrittr)
+library(tidyr)
+```
+
+Summary statistics
+```{r}
+summary_table <- fulldata_copy %>%
+  dplyr::select(-Month) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(., na.rm = TRUE),
+    SD = ~sd(., na.rm = TRUE),
+    Min = ~min(., na.rm = TRUE),
+    Max = ~max(., na.rm = TRUE),
+    N = ~sum(!is.na(.))
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(cols = everything(),
+               names_to = c("Variable", ".value"),
+               names_pattern = "^(.*)_(Mean|SD|Min|Max|N)$")
+
+#Table
+kable_out <- summary_table %>%
+  kable("html", caption = "Summary Statistics for Monthly variables", digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = F, 
+                position = "center") %>%
+  column_spec(1, bold = T) %>%
+  add_header_above(c(" " = 1, "Statistics" = 5))
+
+save_kable(kable_out, "summary_statistics_monthly.html")
+```
+
+Correlation matrix
+```{r}
+# Load necessary packages
+library(urca)
+library(dplyr)
+
+cor_matrix <- fulldata_copy %>%
+  filter(Month <= as.Date("2024-09-01") & Month >= as.Date("2016-01-01"))%>%
+  dplyr::select(where(~ !any(is.na(.)))) %>%
+  dplyr::select(-Month) %>%
+  cor(use = "complete.obs")
+print(cor_matrix)
+
+# Save the kable as an HTML file
+save_kable(kable(cor_matrix, caption = "Correlation Matrix of Variables: Monthly", format = "html"), "correlation_matrix_monthly.html")
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assuming your data is named 'data' and the remittances column is "Remittances_fromRus"
+ggplot(fulldata_copy, aes(x = Month, y = Remittances_fromRus)) +
+  geom_line(color = "blue") +  # Line plot
+  labs(title = "Time Series of Remittances from Russia",
+       subtitle = "Source: National Bank of Kyrgyzstan",
+       x = "Month",
+       y = "Remittances (in millions of US dollars)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+ggsave("/Users/michelle/Documents/thesis/remittances_timeseries.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+
 

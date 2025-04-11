@@ -297,6 +297,20 @@ target_var <- "Kyrgyz_visitors"
 # Prepare results storage
 granger_results <- list()
 
+# Loop through all other variables to test Granger causality
+for (var in setdiff(names(quarterly_df_2010_16), target_var)) {
+  formula <- as.formula(paste(target_var, "~", var))
+  
+  try({
+    test_result <- grangertest(reformulate(var, response = target_var), 
+                               order = 1, 
+                               data = quarterly_df_2010_16)
+    
+    p_value <- test_result$`Pr(>F)`[2]  # Extract p-value from second row
+    granger_results[[var]] <- p_value
+  }, silent = TRUE)
+}
+
 # Convert results to a dataframe
 granger_df <- data.frame(
   Variable = names(granger_results),
@@ -786,5 +800,62 @@ write.csv(coeff_table, "/Users/michelle/Documents/thesis/Nowcast visitors (vario
 
 ```{r}
 write.csv(forecast_vals, "/Users/michelle/Documents/thesis/Nowcast visitors (various types)/mdl_B_forecastvals.csv", row.names = FALSE)
+```
+
+
+
+
+Load in libraries.
+```{r libraries}
+library(readr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(webshot2) 
+library(magrittr)
+library(tidyr)
+```
+
+Summary statistics
+```{r}
+summary_table <- quarterly_df_copy %>%
+  dplyr::select(-Quarter) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(., na.rm = TRUE),
+    SD = ~sd(., na.rm = TRUE),
+    Min = ~min(., na.rm = TRUE),
+    Max = ~max(., na.rm = TRUE),
+    N = ~sum(!is.na(.))
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(cols = everything(),
+               names_to = c("Variable", ".value"),
+               names_pattern = "^(.*)_(Mean|SD|Min|Max|N)$")
+
+#Table
+kable_out <- summary_table %>%
+  kable("html", caption = "Summary Statistics for Quarterly variables", digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = F, 
+                position = "center") %>%
+  column_spec(1, bold = T) %>%
+  add_header_above(c(" " = 1, "Statistics" = 5))
+
+save_kable(kable_out, "/Users/michelle/Documents/thesis/summary_statistics_quarterly.html")
+```
+
+Correlation matrix
+```{r}
+# Load necessary packages
+library(urca)
+library(dplyr)
+
+cor_matrix <- quarterly_df_copy %>% 
+  dplyr::select(where(~ !any(is.na(.)))) %>%  # Keep columns without NA values
+  dplyr::select(-Quarter) %>%  # Drop the Quarter column
+  cor(use = "complete.obs")
+print(cor_matrix)
+
+# Save the kable as an HTML file
+save_kable(kable(cor_matrix, caption = "Correlation Matrix of Variables: Quarterly", format = "html"), "/Users/michelle/Documents/thesis/correlation_matrix_quarterly.html")
 ```
 

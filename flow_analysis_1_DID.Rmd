@@ -1764,3 +1764,517 @@ cat("Non-selected covariates saved to:", non_selected_file, "\n")
 ```
 
 
+
+
+
+##SUMMARY STATS
+
+```{r}
+library(dplyr)
+library(readr)
+library(purrr)
+
+# Read the data
+region_year_data_ss <- read_csv("Documents/thesis/region-year-data.csv")
+
+# Helper function to create formatted table for a given year
+get_top_flows <- function(data, year) {
+  data_year <- data %>%
+    filter(Year == year) %>%
+    dplyr::select(Region, Inflow, Outflow, Netflow)
+  
+  ranks <- paste0(c("First", "Second", "Third", "Fourth", "Fifth",
+                    "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"), " place")
+  
+  top_inflow <- data_year %>%
+    arrange(desc(Inflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Rank = ranks,
+           Inflow = paste0(Region, " (", format(round(Inflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Rank, Inflow)
+  
+  top_outflow <- data_year %>%
+    arrange(desc(Outflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Outflow = paste0(Region, " (", format(round(Outflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Outflow)
+  
+  top_netflow <- data_year %>%
+    arrange(desc(Netflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Netflow = paste0(Region, " (", format(round(Netflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Netflow)
+  
+  final_table <- bind_cols(top_inflow, top_outflow, top_netflow)
+  colnames(final_table) <- c("#", "Inflow", "Outflow", "Netflow")
+  
+  # Add a separator row for clarity
+  separator_row <- data.frame("#" = paste("Top Flows in", year),
+                              Inflow = "", Outflow = "", Netflow = "")
+  
+  # Combine separator with data
+  result <- bind_rows(separator_row, final_table)
+  return(result)
+}
+
+# Generate tables and stack them with dividers
+years <- c(2021, 2022, 2023)
+combined_table <- map_df(years, ~get_top_flows(region_year_data_ss, .x))
+
+# Save to CSV
+write.csv(combined_table, "Documents/thesis/top_flows_2021_2023.csv", row.names = FALSE)
+```
+
+```{r}
+# 2. Load libraries
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthhires)
+
+# 3. Load Russia regions shapefile (admin-1 level)
+russia_sf <- ne_states(country = "Russia", returnclass = "sf")
+
+# 4. Read in your data
+region_data <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Inflow)
+
+region_data_outf <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Outflow)
+
+region_data_netfl <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Netflow)
+
+region_data_casualities22 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2022) %>%
+  dplyr::select(Region, log_mediazona)
+
+region_data_casualities23 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, log_mediazona)
+
+region_data_casualities24 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2024) %>%
+  dplyr::select(Region, log_mediazona)
+
+# 5. View the region names from shapefile and your data
+print(russia_sf$name_en)
+print(region_data$Region)
+```
+
+```{r}
+# 6. Create a matching table
+name_key <- tibble(
+  data_region = c(
+  "Altai Republic", "Altai Krai", "Pskov Oblast", "Krasnodar Krai",
+  "Karachay-Cherkess Republic", "The Kabardino-Balkar Republic", "Republic of North Ossetia — Alania",
+  "Republic of Ingushetia", "Chechen Republic", "Republic of Dagestan",
+  "Murmansk Oblast", "Republic of Karelia", "Leningrad Oblast",
+  "Kaliningrad Oblast", "Smolensk Oblast", "Bryansk Oblast",
+  "Kursk Oblast", "Belgorod Oblast", "Voronezh Oblast",
+  "Rostov Oblast", "Republic of Buryatia", "Tyva Republic",
+  "Zabaykalsky Krai", "Amur Oblast", "Jewish Autonomous Oblast",
+  "Khabarovsk Krai", "Primorsky Krai", "Tyumen Oblast",
+  "Kurgan Oblast", "Omsk Oblast", "Novosibirsk Oblast",
+  "Chelyabinsk Oblast", "Orenburg Oblast", "Saratov Oblast",
+  "Astrakhan Oblast", "Volgograd Oblast", NA,
+  "Magadan District", "Sakhalin District", NA,
+  NA, "Yamalo-Nenets Autonomous Okrug", NA,   #missing Chukotka for some reason, and Nenets is redundant
+  "Sakha (Yakutia) Republic", "Saint Petersburg", "Arkhangel'skaya Oblast'",
+  "Krasnoyarsk Krai", "Republic of Kalmykia", "Kamchatka Krai",
+  NA, "Republic of Bashkortostan", "Sverdlovsk Oblast",
+  "Khanty-Mansi Autonomous Okrug — Yugra", "Lipetsk Oblast", "Tambov Oblast",
+  "Tomsk District", "Republic of Tatarstan", "Ulyanovsk Oblast",
+  "Penza Oblast", "Kemerovo Oblast", "Oryol Oblast",
+  "Irkutsk Oblast", "Republic of Khakassia", "Republic of Mordovia",
+  "Kaluga Oblast", "Kostroma Oblast", "Yaroslavl Oblast",
+  "Vladimir Oblast", "Ryazan Oblast", "Ivanovo Oblast",
+  "Nizhny Novgorod Oblast'", "Tula Oblast", "Chuvash Republic",
+  "Vologda Oblast", "Novgorod Oblast", "Tver Oblast",
+  "Moscow", "Mari El Republic", "Kirov Oblast",
+  "Udmurt Republic", "Komi Republic", "Perm Krai",
+  "Samara Oblast", "Stavropol Krai", "Republic of Adygea"
+),
+
+  map_region = regions <- c(
+  "Altai Republic", "Altai Krai", "Pskov", "Krasnodar Krai", 
+  "Karachay-Cherkess Republic", "Kabardino-Balkaria", "Republic of North Ossetia-Alania",
+  "Republic of Ingushetia", "Chechen Republic", "Republic of Dagestan", 
+  "Murmansk", "Karelia", "Leningrad", 
+  "Kaliningrad", "Smolensk", "Bryansk", 
+  "Kursk", "Belgorod", "Voronezh", 
+  "Rostov", "Republic of Buryatia", "Tuva Republic", 
+  "Zabaykalsky Krai", "Amur", "Jewish", 
+  "Khabarovsk Krai", "Primorsky Krai", "Tyumen", 
+  "Kurgan", "Omsk", "Novosibirsk", 
+  "Chelyabinsk", "Orenburg", "Saratov", 
+  "Astrakhan", "Volgograd", "Autonomous Republic of Crimea", 
+  "Magadan", "Sakhalin", "Sevastopol", 
+  "Chukotka Autonomous Okrug", "Yamalo-Nenets Autonomous Okrug", "Nenets Autonomous Okrug", 
+  "Sakha Republic", "Saint Petersburg", "Arkhangelsk", 
+  "Krasnoyarsk Krai", "Republic of Kalmykia", "Kamchatka Krai", 
+  NA, "Bashkortostan", "Sverdlovsk", 
+  "Khanty-Mansi Autonomous Okrug", "Lipetsk", "Tambov", 
+  "Tomsk", "Republic of Tatarstan", "Ulyanovsk", 
+  "Penza", "Kemerovo", "Oryol", 
+  "Irkutsk", "Republic of Khakassia", "Republic of Mordovia", 
+  "Kaluga", "Kostroma", "Yaroslavl", 
+  "Vladimir", "Ryazan", "Ivanovo", 
+  "Nizhny Novgorod", "Tula", "Chuvash Republic", 
+  "Vologda", "Novgorod", "Tver", 
+  "Moscow", "Mari El Republic", "Kirov", 
+  "Udmurt Republic", "Komi Republic", "Perm Krai", 
+  "Samara", "Stavropol Krai", "Republic of Adygea"
+),
+)
+
+# 7. Join your data with shapefile
+region_data_matched <- region_data %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Inflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Inflow (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Inflows to Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_1.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_outf %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Outflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Outflows (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Outflows to Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_2.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_netfl %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Netflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Net flows (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Net Flows to Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_3.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities22 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2022)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2022.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities23 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2023)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2023.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities24 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2024)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2024.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+
+Descriptives for flows
+
+```{r}
+regions_of_interest <- c("Moscow Oblast", "Sakhalin District", "Sakha (Yakutia) Republic")
+flow_variables <- c("Inflow", "Outflow", "Netflow")  # Replace these with actual column names for inflow, outflow, and netflow
+
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data_ss %>%
+  filter(Region %in% regions_of_interest) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) %>%
+  na.omit()
+
+# Now, let's calculate the total average across all regions for each flow variable
+total_avg_data <- region_flow_data %>%
+  group_by(Year, Flow) %>%
+  summarise(Value = mean(Value, na.rm = TRUE)) %>%
+  mutate(Region = "Total Average")
+
+# Combine the individual region data with the total average data
+combined_data <- bind_rows(region_flow_data, total_avg_data)
+
+# Define custom labels for regions
+region_labels <- c(
+  "Moscow Oblast" = "Moscow",
+  "Sakhalin District" = "Sakhalin",
+  "Sakha (Yakutia) Republic" = "Yakutia",
+  "Total Average" = "Average"
+)
+
+# Create the 3x4 grid of time series plots with standardized scales
+ggplot(combined_data, aes(x = Year, y = Value, color = Flow)) +
+  geom_line() +
+  facet_grid(Region ~ Flow, scales = "fixed",  # Standardize scales across all plots
+             labeller = labeller(Region = region_labels)) +  # Apply custom region labels
+  labs(title = "Flow Variables by Region",
+       x = "Year",
+       y = "Flow Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 1/2) +  # Make the plot wider by adjusting aspect ratio
+  scale_color_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "gray")) + 
+  scale_x_continuous(breaks = function(x) round(x))  # Round the x-axis years to integers
+```
+
+```{r}
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data_ss %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) %>%
+  na.omit()
+
+# Create faceted histogram by flow variable but with all regions together
+ggplot(region_flow_data, aes(x = Value, fill = Flow)) +
+  geom_histogram(binwidth = 1000, position = "identity", alpha = 0.6) +  # Histograms with some transparency
+  facet_wrap(~ Flow, scales = "free_y") +  # Facet by Flow variable
+  labs(title = "Distribution of Flow Variables",
+       x = "Flow Value",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 3/4) +  
+  scale_fill_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "gray"))  # Custom fill colors
+
+
+ggsave("/Users/michelle/Documents/thesis/histogram_flows.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+Add nowcast
+
+```{r}
+extended_time_series_flows_infl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_inflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Inflow_Nowc = `Fitted Values`)
+
+extended_time_series_flows_outfl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_OUTflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Outflow_Nowc = `Fitted Values`)
+
+extended_time_series_flows_netfl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_NETflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Netflow_Nowc = `Fitted Values`)
+
+region_year_data <- read_csv("/Users/michelle/Documents/thesis/region-year-data.csv") 
+
+# Retain actual Inflow data where available, otherwise use nowcasted values
+region_year_data <- region_year_data %>%
+  left_join(extended_time_series_flows_infl %>% dplyr::select(Year, Region, Inflow_Nowc), 
+            by = c("Year", "Region")) %>%
+  left_join(extended_time_series_flows_outfl %>% dplyr::select(Year, Region, Outflow_Nowc), 
+            by = c("Year", "Region")) %>%
+  left_join(extended_time_series_flows_netfl %>% dplyr::select(Year, Region, Netflow_Nowc), 
+            by = c("Year", "Region"))
+```
+
+```{r}
+regions_of_interest <- c("Moscow Oblast", "Sakhalin District", "Sakha (Yakutia) Republic")
+flow_variables <- c("Inflow", "Outflow", "Netflow", "Inflow_Nowc", "Outflow_Nowc", "Netflow_Nowc")  # Replace these with actual column names for inflow, outflow, and netflow
+
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data %>%
+  filter(Region %in% regions_of_interest) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) 
+
+# Now, let's calculate the total average across all regions for each flow variable
+total_avg_data <- region_flow_data %>%
+  group_by(Year, Flow) %>%
+  summarise(Value = mean(Value)) %>%
+  mutate(Region = "Total Average")
+
+# Combine the individual region data with the total average data
+combined_data_nowc <- bind_rows(region_flow_data, total_avg_data) %>%
+  filter(Flow %in% c("Inflow_Nowc", "Outflow_Nowc", "Netflow_Nowc"))
+
+# Define custom labels for regions
+region_labels <- c(
+  "Moscow Oblast" = "Moscow",
+  "Sakhalin District" = "Sakhalin",
+  "Sakha (Yakutia) Republic" = "Yakutia",
+  "Total Average" = "Average"
+)
+
+combined_data_all <- bind_rows(
+  combined_data %>% mutate(Type = "Original"),  # Add a column to indicate original data
+  combined_data_nowc %>% mutate(Type = "Nowcast")  # Add a column to indicate nowcast data
+)%>%
+  mutate(Flow = recode(Flow, 
+                       "Inflow_Nowc" = "Inflow", 
+                       "Outflow_Nowc" = "Outflow", 
+                       "Netflow_Nowc" = "Netflow")) %>%
+  filter(Year != 2018)
+
+# Create the 3x4 grid of time series plots with standardized scales and overlay the nowcasts
+ggplot(data = combined_data_all) +
+  geom_line(aes(x = Year, y = Value, color = Flow, linetype = Type)) +  # Overlay original and nowcasted data
+  facet_grid(Region ~ Flow, scales = "fixed",  # Standardize scales across all plots
+             labeller = labeller(Region = region_labels)) +  # Apply custom region labels
+  labs(title = "Flow Variables by Region",
+       x = "Year",
+       y = "Flow Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 1/2) +  # Make the plot wider by adjusting aspect ratio 
+  scale_linetype_manual(values = c("Original" = "solid", "Nowcast" = "dashed")) +  # Different line types for original and nowcasted data
+  scale_color_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "darkgray")) + 
+  scale_x_continuous(breaks = seq(min(combined_data_all$Year), max(combined_data_all$Year), by = 2))  # Set major x-axis breaks to 2 year intervals
+
+
+ggsave("/Users/michelle/Documents/thesis/flow_vars_v_nowvast.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+

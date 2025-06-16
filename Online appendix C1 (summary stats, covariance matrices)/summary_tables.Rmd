@@ -1,0 +1,89 @@
+This file will produce summary tables for inclusion in the exploratory data analysis section.
+
+Load in libraries.
+```{r libraries}
+library(readr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+library(webshot2) 
+library(magrittr)
+library(tidyr)
+
+setwd("/Users/michelle/Documents/thesis")
+```
+
+Load in data (region-year). 
+```{r}
+ry_merged_data <- read_csv("region-year-data.csv") %>%
+  filter(Year >= 2021,
+         Region != "Russian Federation") %>%
+  dplyr::select(-contains("_average"))  # Remove columns containing "_average"
+
+# Coerce all columns except Region and Year to numeric
+ry_merged_data <- ry_merged_data %>%
+  mutate(across(.cols = !c(Region, Year), .fns = as.numeric))
+```
+
+Summary statistics (region-year).
+```{r}
+summary_table <- ry_merged_data %>%
+  dplyr::select(-Region, -Year) %>%
+  summarise(across(everything(), list(
+    Mean = ~mean(., na.rm = TRUE),
+    SD = ~sd(., na.rm = TRUE),
+    Min = ~min(., na.rm = TRUE),
+    Max = ~max(., na.rm = TRUE),
+    N = ~sum(!is.na(.))
+  ), .names = "{.col}_{.fn}")) %>%
+  pivot_longer(cols = everything(),
+               names_to = c("Variable", ".value"),
+               names_pattern = "^(.*)_(Mean|SD|Min|Max|N)$")
+
+#Table
+kable_out <- summary_table %>%
+  kable("html", caption = "Summary Statistics for Region-by-Year variables", digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = F, 
+                position = "center") %>%
+  column_spec(1, bold = T) %>%
+  add_header_above(c(" " = 1, "Statistics" = 5))
+
+save_kable(kable_out, "summary_statistics_regional-yearly.html")
+```
+
+Correlation matrix (region-year)
+```{r}
+# Load necessary packages
+library(urca)
+library(dplyr)
+
+# Prepare data: Remove Region and Year columns
+data_for_cointegration <- ry_merged_data %>%
+  dplyr::select(-Region, -Year)
+
+# Drop rows with missing values
+data_for_cointegration <- data_for_cointegration %>% drop_na()
+
+cor_matrix <- cor(data_for_cointegration, use = "complete.obs")
+print(cor_matrix)
+
+# Save the kable as an HTML file
+save_kable(kable(cor_matrix, caption = "Correlation Matrix of Variables: Region-by-Year", format = "html"), "correlation_matrix_regional-yearly.html")
+```
+
+Find perfectly correlated pairs
+```{r}
+# Find the pairs of variables with perfect correlation (1 or -1)
+perfectly_correlated <- which(abs(cor_matrix) == 1, arr.ind = TRUE)
+
+# Remove self-correlation (diagonal elements)
+perfectly_correlated <- perfectly_correlated[perfectly_correlated[, 1] != perfectly_correlated[, 2], ]
+
+# Extract the variable names that are perfectly correlated
+perfectly_correlated_vars <- apply(perfectly_correlated, 1, function(x) colnames(cor_matrix)[x])
+
+# Print the pairs of variables with perfect correlation
+perfectly_correlated_vars
+```
+

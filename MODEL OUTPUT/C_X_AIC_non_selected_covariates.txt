@@ -1,2 +1,0 @@
-Non-selected covariates:
- poverty_rate, change_in_output, changeinindustrialproduction_mineral_extraction, changeinindustrialproduction_manufacturing, changeinindustrialproduction_water_utilities, log_minwagevalue, log_city_pop, lag_changeinindustrialproduction_mineral_extraction, lag_log_city_pop, lag_log_rural_pop, lag_log_avg_nominal_gross_wages, postwar 

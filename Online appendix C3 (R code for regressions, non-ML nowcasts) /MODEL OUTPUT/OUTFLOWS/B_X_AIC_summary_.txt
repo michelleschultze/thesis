@@ -1,0 +1,35 @@
+
+Call:
+lm(formula = log1p(Outflow) ~ change_in_real_avg_wages + changeinindustrialproduction_electricity_utilities + 
+    changeinindustrialproduction_water_utilities + log_total_pop + 
+    log_rural_pop + log_avg_nominal_gross_wages + lag_changeinindustrialproduction_manufacturing + 
+    lag_changeinindustrialproduction_electricity_utilities + 
+    lag_changeinindustrialproduction_water_utilities + lag_log_total_pop + 
+    war + postwar, data = region_year_data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-3.3350 -0.6955  0.0432  0.7230  2.5677 
+
+Coefficients:
+                                                        Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                                            -39.23399    4.41522  -8.886  < 2e-16 ***
+change_in_real_avg_wages                                 4.20862    2.77682   1.516 0.130987    
+changeinindustrialproduction_electricity_utilities      -1.36019    0.50139  -2.713 0.007175 ** 
+changeinindustrialproduction_water_utilities            -0.32586    0.20046  -1.626 0.105414    
+log_total_pop                                            8.01629    3.14497   2.549 0.011457 *  
+log_rural_pop                                            0.11072    0.04216   2.626 0.009210 ** 
+log_avg_nominal_gross_wages                              2.89998    0.25080  11.563  < 2e-16 ***
+lag_changeinindustrialproduction_manufacturing          -0.72387    0.38567  -1.877 0.061791 .  
+lag_changeinindustrialproduction_electricity_utilities  -1.15252    0.50894  -2.265 0.024472 *  
+lag_changeinindustrialproduction_water_utilities        -0.39771    0.22626  -1.758 0.080116 .  
+lag_log_total_pop                                       -7.22789    3.17250  -2.278 0.023627 *  
+war                                                      2.09920    0.46245   4.539  9.1e-06 ***
+postwar                                                 -1.18138    0.31504  -3.750 0.000224 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 1.075 on 230 degrees of freedom
+Multiple R-squared:  0.6388,	Adjusted R-squared:  0.6199 
+F-statistic: 33.89 on 12 and 230 DF,  p-value: < 2.2e-16
+

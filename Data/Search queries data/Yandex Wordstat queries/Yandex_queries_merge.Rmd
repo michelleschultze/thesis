@@ -1,0 +1,377 @@
+Goal: merge manually-downloaded Yandex data into a single dataframe for each keyword.
+
+```{r}
+# Load necessary libraries
+library(readr)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(tidyr)
+```
+
+Added some data in Russian and English, so we need a function to handle both:
+```{r}
+# Updated Function to parse date in both English and Russian formats
+parse_period <- function(period) {
+  # Check for Excel serial number format
+  if (grepl("^\\d{5}$", period)) {
+    date_serial <- as.Date(as.numeric(period), origin = "1899-12-30")
+    return(date_serial)
+  }
+
+  # Try parsing English month-year format
+  date_eng <- suppressWarnings(lubridate::my(period))
+  if (!is.na(date_eng)) return(date_eng)
+
+  # Try parsing Russian month-year format
+  months_ru <- c("январь" = "January", "февраль" = "February", "март" = "March", 
+                 "апрель" = "April", "май" = "May", "июнь" = "June", 
+                 "июль" = "July", "август" = "August", "сентябрь" = "September", 
+                 "октябрь" = "October", "ноябрь" = "November", "декабрь" = "December")
+
+  # Replace Russian month names with English equivalents
+  period_ru <- tolower(period)
+  for (ru_month in names(months_ru)) {
+    period_ru <- gsub(ru_month, months_ru[[ru_month]], period_ru)
+  }
+  date_ru <- suppressWarnings(lubridate::my(period_ru))
+  if (!is.na(date_ru)) return(date_ru)
+
+  # Handle Russian numeric date format (e.g., 31.12.2017)
+  period_clean <- stringr::str_extract(period, "\\d{2}\\.\\d{2}\\.\\d{4}")
+  date_ru_num <- suppressWarnings(lubridate::dmy(period_clean))
+  if (!is.na(date_ru_num)) return(date_ru_num)
+
+  # If all parsing fails, return NA
+  return(NA)
+}
+```
+
+Dictionary for translating Russian region names to latinized versions:
+```{r}
+# Create a named vector to map Russian region names to English equivalents
+russian_to_english <- c(
+  "Калужская область" = "Kaluga Oblast",
+  "Костромская область" = "Kostroma Oblast",
+  "Курская область" = "Kursk Oblast",
+  "Липецкая область" = "Lipetsk Oblast",
+  "Орловская область" = "Oryol Oblast",
+  "Рязанская область" = "Ryazan Oblast",
+  "Смоленская область" = "Smolensk Oblast",
+  "Тамбовская область" = "Tambov Oblast",
+  "Тверская область" = "Tver Oblast",
+  "Тульская область" = "Tula Oblast",
+  "Ярославская область" = "Yaroslavl Oblast",
+  "Санкт-Петербург" = "Saint Petersburg",
+  "Ленинградская область" = "Leningrad Oblast",
+  "Архангельская область" = "Arkhangel'skaya Oblast'",
+  "Вологодская область" = "Vologda Oblast",
+  "Калининградская область" = "Kaliningrad Oblast",
+  "Мурманская область" = "Murmansk Oblast",
+  "Новгородская область" = "Novgorod Oblast",
+  "Псковская область" = "Pskov Oblast",
+  "Республика Карелия" = "Republic of Karelia",
+  "Москва" = "Moscow",
+  "Республика Коми" = "Komi Republic",
+  "Кировская область" = "Kirov Oblast",
+  "Нижегородская область" = "Nizhny Novgorod Oblast'",
+  "Оренбургская область" = "Orenburg Oblast",
+  "Пензенская область" = "Penza Oblast",
+  "Пермский край" = "Perm Krai",
+  "Республика Башкортостан" = "Republic of Bashkortostan",
+  "Республика Марий Эл" = "Mari El Republic",
+  "Республика Мордовия" = "Republic of Mordovia",
+  "Республика Татарстан" = "Republic of Tatarstan",
+  "Московская область" = "Moscow Oblast",
+  "Самарская область" = "Samara Oblast",
+  "Саратовская область" = "Saratov Oblast",
+  "Удмуртская Республика" = "Udmurt Republic",
+  "Ульяновская область" = "Ulyanovsk Oblast",
+  "Чувашская Республика" = "Chuvash Republic",
+  "Астраханская область" = "Astrakhan Oblast",
+  "Волгоградская область" = "Volgograd Oblast",
+  "Краснодарский край" = "Krasnodar Krai",
+  "Республика Адыгея" = "Republic of Adygea",
+  "Республика Калмыкия" = "Republic of Kalmykia",
+  "Белгородская область" = "Belgorod Oblast",
+  "Ростовская область" = "Rostov Oblast",
+  "Алтайский край" = "Altai Krai",
+  "Иркутская область" = "Irkutsk Oblast",
+  "Кемеровская область (Кузбасс)" = "Kemerovo Oblast",
+  "Красноярский край" = "Krasnoyarsk Krai",
+  "Новосибирская область" = "Novosibirsk Oblast",
+  "Омская область" = "Omsk Oblast",
+  "Республика Алтай" = "Altai Republic",
+  "Республика Тыва" = "Tyva Republic",
+  "Республика Хакасия" = "Republic of Khakassia",
+  "Брянская область" = "Bryansk Oblast",
+  "Томская область" = "Tomsk District",
+  "Амурская область" = "Amur Oblast",
+  "Еврейская автономная область" = "Jewish Autonomous Oblast",
+  "Забайкальский край" = "Zabaykalsky Krai",
+  "Камчатский край" = "Kamchatka Krai",
+  "Магаданская область" = "Magadan District",
+  "Приморский край" = "Primorsky Krai",
+  "Республика Бурятия" = "Republic of Buryatia",
+  "Республика Саха (Якутия)" = "Sakha (Yakutia) Republic",
+  "Сахалинская область" = "Sakhalin District",
+  "Владимирская область" = "Vladimir Oblast",
+  "Хабаровский край" = "Khabarovsk Krai",
+  "Кабардино-Балкарская Республика" = "The Kabardino-Balkar Republic",
+  "Карачаево-Черкесская Республика" = "Karachay-Cherkess Republic",
+  "Республика Дагестан" = "Republic of Dagestan",
+  "Республика Ингушетия" = "Republic of Ingushetia",
+  "Республика Северная Осетия — Алания" = "Republic of North Ossetia — Alania",
+  "Ставропольский край" = "Stavropol Krai",
+  "Чеченская Республика" = "Chechen Republic",
+  "Курганская область" = "Kurgan Oblast",
+  "Свердловская область" = "Sverdlovsk Oblast",
+  "Воронежская область" = "Voronezh Oblast",
+  "Тюменская область" = "Tyumen Oblast",
+  "Ханты-Мансийский автономный округ - Югра" = "Khanty-Mansi Autonomous Okrug — Yugra",
+  "Челябинская область" = "Chelyabinsk Oblast",
+  "Ямало-Ненецкий автономный округ" = "Yamalo-Nenets Autonomous Okrug",
+  "Ивановская область" = "Ivanovo Oblast"
+)
+```
+
+##Import the absolute counts
+
+Convert the Yandex Wordstat data to a dataframe for each keyword. (takes 1-2 mins) 
+```{r}
+# List all folders (keywords)
+folders <- list.dirs(full.names = TRUE, recursive = FALSE)
+
+# Define the output directory
+output_dir <- "/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/clean keyword data"
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Loop through each folder
+for (folder in folders) {
+  setwd("/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/raw keyword data")
+  
+  keyword <- basename(folder)  # Extract the folder name
+  files <- list.files(folder, pattern = "*.csv", full.names = TRUE)  # List all CSV files
+  
+  keyword_df <- NULL  # Initialize an empty dataframe for the keyword
+  
+  for (file in files) {
+    # Read the file
+    temp_df <- read_delim(file, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+    
+    # Extract the region title from column 4
+    col4_name <- colnames(temp_df)[4] 
+    
+    # Regex patterns for English and Russian
+    region_pattern_eng <- ".*\\d{2}\\.\\d{2}\\.\\d{4}, ([^,]+), all devices.*"
+    region_pattern_ru <- ".*\\d{2}\\.\\d{2}\\.\\d{4}, ([^,]+), все устройства.*"
+    
+    region <- ifelse(grepl(region_pattern_eng, col4_name),
+                     sub(region_pattern_eng, "\\1", col4_name),
+                     sub(region_pattern_ru, "\\1", col4_name))
+    
+    # Handle special regions
+    if (grepl("Moscow and Moscow Oblast, except Moscow", col4_name) || grepl("Москва и область, кроме Москва", col4_name)) {
+      region <- "Moscow Oblast"
+    } else if (grepl("Saint-Petersburg and Leningrad Oblast, except Saint Petersburg", col4_name) || grepl("Санкт-Петербург и Ленинградская область, кроме Санкт-Петербург", col4_name)) {
+      region <- "Leningrad Oblast"
+    }
+    
+    # Select relevant columns and rename them
+    temp_df <- temp_df[, 1:2]  # Keep only "Period" and "Number of queries"
+    temp_df[[2]] <- as.numeric(str_replace_all(temp_df[[2]], " ", ""))  # Remove spaces and convert to numeric
+    colnames(temp_df) <- c("Period", region)  # Rename second column to the region
+    
+    # Merge into main dataframe
+    if (is.null(keyword_df)) {
+      keyword_df <- temp_df  # First file becomes the dataframe
+    } else {
+      keyword_df <- full_join(keyword_df, temp_df, by = "Period")  # Merge by "Period"
+    }
+  }
+  
+  # Convert "Period" to date format (supports English, Russian, and serial)
+  keyword_df <- keyword_df %>%
+    mutate(Period = sapply(Period, parse_period)) %>%
+    mutate(across(-Period, ~ as.numeric(str_replace_all(., " ", "")))) 
+    
+    # Function to translate column names
+  translate_columns <- function(df, mapping) {
+    colnames(df) <- sapply(colnames(df), function(col) ifelse(col %in% names(mapping), mapping[col], col))
+    return(df)
+  }
+  
+  # Apply translation to the entire dataframe
+  keyword_df <- translate_columns(keyword_df, mapping = russian_to_english)
+
+  # Assign the dataframe to a variable named after the keyword
+  assign(keyword, keyword_df, envir = .GlobalEnv)
+
+  # Save the cleaned dataframe as a CSV
+  write_csv(keyword_df, file.path(output_dir, paste0("count_", keyword, ".csv")))
+}
+```
+
+##Import the percentages (same thing but with a different column of the raw data)
+
+Convert the Yandex Wordstat data to a dataframe for each keyword. (takes 1-2 mins) 
+```{r}
+# List all folders (keywords)
+folders <- list.dirs(full.names = TRUE, recursive = FALSE)
+
+# Define the output directory
+output_dir <- "/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/clean keyword data"
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Loop through each folder
+for (folder in folders) {
+  setwd("/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/raw keyword data")
+  
+  keyword <- basename(folder)  # Extract the folder name
+  files <- list.files(folder, pattern = "*.csv", full.names = TRUE)  # List all CSV files
+  
+  keyword_df <- NULL  # Initialize an empty dataframe for the keyword
+  
+  for (file in files) {
+    # Read the file
+    temp_df <- read_delim(file, delim = ";", escape_double = FALSE, trim_ws = TRUE)
+    
+    # Extract the region title from column 4
+    col4_name <- colnames(temp_df)[4] 
+    
+    # Regex patterns for English and Russian
+    region_pattern_eng <- ".*\\d{2}\\.\\d{2}\\.\\d{4}, ([^,]+), all devices.*"
+    region_pattern_ru <- ".*\\d{2}\\.\\d{2}\\.\\d{4}, ([^,]+), все устройства.*"
+    
+    region <- ifelse(grepl(region_pattern_eng, col4_name),
+                     sub(region_pattern_eng, "\\1", col4_name),
+                     sub(region_pattern_ru, "\\1", col4_name))
+    
+    # Handle special regions
+    if (grepl("Moscow and Moscow Oblast, except Moscow", col4_name) || grepl("Москва и область, кроме Москва", col4_name)) {
+      region <- "Moscow Oblast"
+    } else if (grepl("Saint-Petersburg and Leningrad Oblast, except Saint Petersburg", col4_name) || grepl("Санкт-Петербург и Ленинградская область, кроме Санкт-Петербург", col4_name)) {
+      region <- "Leningrad Oblast"
+    }
+    
+    temp_df <- temp_df[, c(1, 3)]  # Keep "Period", "Number of queries", and "Percentage change"
+    # Remove semicolons and spaces, then convert to numeric
+temp_df[[2]] <- str_replace_all(temp_df[[2]], ";", "")  # Remove semicolons
+temp_df[[2]] <- str_replace_all(temp_df[[2]], ",", ".")  # Replace commas with dots
+temp_df[[2]] <- as.numeric(temp_df[[2]])  # Convert to numeric
+    colnames(temp_df) <- c("Period", region, paste(region, "Percentage Change", sep = "_"))  # Rename columns
+    
+    # Merge into main dataframe
+    if (is.null(keyword_df)) {
+      keyword_df <- temp_df  # First file becomes the dataframe
+    } else {
+      keyword_df <- full_join(keyword_df, temp_df, by = "Period")  # Merge by "Period"
+    }
+  }
+  
+  # Convert "Period" to date format (supports English, Russian, and serial)
+  keyword_df <- keyword_df %>%
+    mutate(Period = sapply(Period, parse_period)) %>%
+    mutate(across(-Period, ~ as.numeric(str_replace_all(., " ", "")))) 
+    
+    # Function to translate column names
+  translate_columns <- function(df, mapping) {
+    colnames(df) <- sapply(colnames(df), function(col) ifelse(col %in% names(mapping), mapping[col], col))
+    return(df)
+  }
+  
+  # Apply translation to the entire dataframe
+  keyword_df <- translate_columns(keyword_df, mapping = russian_to_english)
+
+  # Assign the dataframe to a variable named after the keyword
+  assign(keyword, keyword_df, envir = .GlobalEnv)
+
+  # Save the cleaned dataframe as a CSV
+  write_csv(keyword_df, file.path(output_dir, paste0("pct_", keyword, ".csv")))
+}
+```
+
+#Merge together (treating like a list of n*2 variables)
+
+Now process and merge the keyword data together:
+```{r}
+# Set the directory for the cleaned keyword data
+clean_data_dir <- "/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries/clean keyword data"
+
+# List all the CSV files in the directory
+files <- list.files(clean_data_dir, pattern = "*.csv", full.names = TRUE)
+
+# Initialize an empty list to store the dataframes
+long_data_list <- list()
+
+# Loop through each file
+for (file in files) {
+  
+  # Read the current CSV file
+  temp_df <- read_csv(file)
+  
+  # Extract the keyword from the file name (without extension)
+  keyword <- tools::file_path_sans_ext(basename(file))
+  
+  # Convert to long format
+  temp_long_df <- temp_df %>%
+    pivot_longer(cols = -Period, names_to = "region", values_to = keyword) %>%
+    rename(Period = Period)  # Rename the 'Period' column explicitly
+  
+  # Store the long format data in the list
+  long_data_list[[keyword]] <- temp_long_df
+}
+
+# Merge all datasets by 'Period' and 'region' (with outer join to keep all observations)
+yandex_keywords_monthly <- Reduce(function(x, y) {
+  merge(x, y, by = c("Period", "region"), all = TRUE)
+}, long_data_list)
+
+# View the result
+head(yandex_keywords_monthly)
+```
+
+Annualize:
+```{r}
+yandex_keywords_monthly <- yandex_keywords_monthly %>%
+  mutate(Period = Period - 17501) %>%
+  mutate(Period = as_date(Period, origin = "2017-12-01")) %>%
+  mutate(Period = format(Period, "%d-%m-%Y"))
+
+# Extract the year from the 'Period' column and create a new 'Year' column
+yandex_keywords_monthly <- yandex_keywords_monthly %>%
+  mutate(Period = dmy(Period)) %>%  # Convert 'Period' to Date (Day-Month-Year)
+  mutate(Year = year(Period))  # Extract the year
+
+# Group by region and year, then sum and average the numeric data for each region/year
+yandex_keywords_annual <- yandex_keywords_monthly %>%
+  group_by(region, Year) %>%
+  summarise(
+    across(where(is.numeric), list(sum = ~sum(. , na.rm = TRUE), 
+                                   average = ~mean(. , na.rm = TRUE))),
+    .groups = "drop"
+  )
+
+# View the result
+head(yandex_keywords_annual)
+```
+
+Drop percentage sums because they don't make sense:
+```{r}
+yandex_keywords_annual <- yandex_keywords_annual %>%
+  select(-matches("pct.*sum"))  # Drop columns that have both 'pct' and 'sum' in their name
+```
+
+Export:
+```{r}
+write_csv(yandex_keywords_annual, file.path("/Users/michelle/Documents/thesis/Search queries data/Yandex Wordstat queries", "Yandex_keywords_annual.csv"))
+```
+

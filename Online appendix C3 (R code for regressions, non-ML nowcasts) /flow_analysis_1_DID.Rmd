@@ -1,0 +1,2281 @@
+This file will complete the first regression needed for the flow data: a limited difference-in-difference analysis of the Kyrgyz migrant flows (region-by-year 2021-23) over time.
+
+Of interest:
+- significance and magnitude of the coefficients on time fixed effect dummies --> quantify impact of war onset and continuation
+- selection, significance, and magnitude of covariates --> understand pull factors for kyrgyz migrants to russia
+
+```{r}
+library(dplyr)
+library(readr)
+setwd("/Users/michelle")
+```
+
+```{r}
+region_year_data <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  dplyr::select(-contains("count_"), -contains("pct_"), -contains("ratio_")) %>%
+#remove yandex trends
+  filter(!is.na(Inflow))  # Remove rows where Inflow is NA, if any
+```
+
+Drop unnecessary variables, /100 for percentage variables that haven't gotten that treatment already.
+```{r}
+# Drop columns that need log transformation therefore we cannot include with levels
+region_year_data <- region_year_data[, !(names(region_year_data) %in% c("minwagevalue", "total_pop", "city_pop", "rural_pop", "avg_nominal_gross_wages", "lag_total_pop", "lag_city_pop", "lag_rural_pop", "lag_avg_nominal_gross_wages"))]
+
+# Divide selected columns by 100
+region_year_data[c("change_in_output", "change_in_real_avg_wages", "changeinindustrialproduction_all", 
+                   "changeinindustrialproduction_mineral_extraction", "changeinindustrialproduction_manufacturing", 
+                   "changeinindustrialproduction_electricity_utilities", "changeinindustrialproduction_water_utilities", 
+                   "lag_changeinindustrialproduction_mineral_extraction", "lag_changeinindustrialproduction_manufacturing", 
+                   "lag_changeinindustrialproduction_electricity_utilities", "lag_changeinindustrialproduction_water_utilities")] <- 
+  region_year_data[c("change_in_output", "change_in_real_avg_wages", "changeinindustrialproduction_all", 
+                     "changeinindustrialproduction_mineral_extraction", "changeinindustrialproduction_manufacturing", 
+                     "changeinindustrialproduction_electricity_utilities", "changeinindustrialproduction_water_utilities", 
+                     "lag_changeinindustrialproduction_mineral_extraction", "lag_changeinindustrialproduction_manufacturing", 
+                     "lag_changeinindustrialproduction_electricity_utilities", "lag_changeinindustrialproduction_water_utilities")] / 100
+
+# Remove columns with missing first observations
+region_year_data <- region_year_data[, !(names(region_year_data) %in% c("lag_minwagevalue", "lag_log_minwagevalue"))]
+
+# Keep the original columns as-is (this part is already implicitly handled by not applying any transformation to the specified columns)
+# You don't need to do anything for columns like "Region", "Year", "Inflow", "poverty_rate", etc.
+```
+
+Prep by removing NAs
+```{r}
+library(dplyr)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  dplyr::select(Year, Region, variable)
+
+# View the result
+head(na_data) #No NAs left!
+```
+
+Prep by removing time trends (sample too small) and adding a post-war dummy. 
+```{r}
+region_year_data <- region_year_data %>%
+  # Add the postwar dummy variable
+  mutate(war = if_else(Year >= 2022, 1, 0)) %>%
+  mutate(postwar = if_else(Year >= 2022, Year - 2021, 0)) 
+```
+
+Output folder
+```{r}
+output_directory <- "/Users/michelle/Documents/thesis/MODEL OUTPUT" 
+```
+
+
+#A: Plain DID 
+
+```{r}
+region_year_data_copy <- region_year_data %>%
+  dplyr::select(-mediazona) #needs to be logged only
+region_year_data <- region_year_data %>%
+  dplyr::select(-Outflow, -Netflow) %>%
+  dplyr::select(-contains("mediazona"))
+```
+
+## A_X: No fixed effects (not really functional due to lack of predictors)
+
+```{r}
+# Load necessary libraries
+library(lmtest)  # For coeftest function
+library(sandwich) # For robust standard errors
+
+# Create the formula for the model (Inflow as the dependent variable) without an intercept
+formula <- as.formula(paste("log1p(Inflow) ~ ",   # Remove the intercept with "0 +"
+                            paste(c("war", "postwar"), collapse = " + ")))  
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+summary(full_model) # Standard errors
+print(robust_summary) # Robust errors
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(full_model, studentize = TRUE)
+bptest(full_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(full_model$fitted.values, full_model$residuals, 
+     main = "Residual Plot (Model 1A)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(full_model, which = 3)
+```
+
+```{r save}
+model_name <- "A_X"  # Replace this with your model name or identifier
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(full_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+```
+
+
+## A_FE: With fixed effects (not really functional due to overfit)
+
+```{r}
+# Load necessary libraries
+library(clubSandwich)
+library(lmtest)  # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable) without an intercept
+formula <- as.formula(paste("log1p(Inflow) ~ 0 +",   # Remove the intercept with "0 +"
+                            paste(c("war", "postwar", "factor(Region)"), collapse = " + ")))  
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(full_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(full_model)$adj.r.squared
+f_stat <- summary(full_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# Create a table with actual values and fitted values
+fitted_vs_actual <- data.frame(
+  Region = region_year_data$Region,  # Region identifier
+  Year = region_year_data$Year,  # If you have a Year variable
+  Actual_Inflow = log(region_year_data$Inflow),  # Actual inflow values
+  Fitted_Inflow = log(expm1(fitted(full_model)))  # Convert log1p back to original scale
+)
+
+# Print the table
+print(fitted_vs_actual)
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(full_model, studentize = TRUE)
+bptest(full_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(full_model$fitted.values, full_model$residuals, 
+     main = "Residual Plot (Model 1A)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(full_model, which = 3)
+```
+
+```{r save}
+model_name <- "A_FE"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(full_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+```
+
+
+#B: DID with covariates
+
+##B_X_BIC: NO fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_X_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_FE_BIC: With fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Prepare the data (remove unwanted columns)
+region_year_data <- region_year_data %>% 
+  dplyr::select(-contains("mediazona"))
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_FE_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_X_AIC: NO fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_X_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_FE_AIC: With fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Prepare the data (remove unwanted columns)
+region_year_data <- region_year_data %>% 
+  dplyr::select(-contains("mediazona"))
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_FE_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+
+#C: DID adding Mediazona casualties (labor substitution analysis)
+We simply add mediazona data back into the mix and see if it is selected and what its coefficients look like. 
+
+```{r prep}
+region_year_data <- region_year_data_copy %>%
+  dplyr::select(-Outflow, -Netflow)
+```
+
+##C_X_BIC: NO fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_X_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_FE_BIC: With fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_FE_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_X_AIC: NO fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_X_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_FE_AIC: With fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_FE_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+
+
+
+#D: extended time series! 
+
+```{r}
+extended_time_series_flows <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_inflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .)))
+
+region_year_data <- read_csv("/Users/michelle/Documents/thesis/region-year-data.csv") %>%
+  filter(Year > 2018) %>%
+  dplyr::select(-contains("count_"), -contains("pct_"), -contains("ratio_"))
+
+# Retain actual Inflow data where available, otherwise use nowcasted values
+region_year_data <- region_year_data %>%
+  left_join(extended_time_series_flows %>% dplyr::select(Year, Region, `Fitted Values`), 
+            by = c("Year", "Region")) %>%
+  mutate(Inflow = coalesce(Inflow, `Fitted Values`)) %>%
+  dplyr::select(-`Fitted Values`, -Outflow, -Netflow)
+```
+
+Drop unnecessary variables, /100 for percentage variables that haven't gotten that treatment already.
+```{r}
+library(tidyr)
+
+# Drop columns that need log transformation therefore we cannot include with levels
+region_year_data <- region_year_data[, !(names(region_year_data) %in% c("minwagevalue", "total_pop", "city_pop", "rural_pop", "avg_nominal_gross_wages", "lag_total_pop", "lag_city_pop", "lag_rural_pop", "lag_avg_nominal_gross_wages"))]
+
+# Divide selected columns by 100
+region_year_data[c("change_in_output", "change_in_real_avg_wages", "changeinindustrialproduction_all", 
+                   "changeinindustrialproduction_mineral_extraction", "changeinindustrialproduction_manufacturing", 
+                   "changeinindustrialproduction_electricity_utilities", "changeinindustrialproduction_water_utilities", 
+                   "lag_changeinindustrialproduction_mineral_extraction", "lag_changeinindustrialproduction_manufacturing", 
+                   "lag_changeinindustrialproduction_electricity_utilities", "lag_changeinindustrialproduction_water_utilities")] <- 
+  region_year_data[c("change_in_output", "change_in_real_avg_wages", "changeinindustrialproduction_all", 
+                     "changeinindustrialproduction_mineral_extraction", "changeinindustrialproduction_manufacturing", 
+                     "changeinindustrialproduction_electricity_utilities", "changeinindustrialproduction_water_utilities", 
+                     "lag_changeinindustrialproduction_mineral_extraction", "lag_changeinindustrialproduction_manufacturing", 
+                     "lag_changeinindustrialproduction_electricity_utilities", "lag_changeinindustrialproduction_water_utilities")] / 100
+
+region_year_data %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  gather(key = "Column", value = "NA_Count") %>%
+  filter(NA_Count > 0)
+
+# Remove columns with missing first observations
+region_year_data <- region_year_data[, !(names(region_year_data) %in% c("poverty_rate", "change_in_real_avg_wages", "log_minwagevalue", "lag_log_minwagevalue"))]
+
+# Keep the original columns as-is (this part is already implicitly handled by not applying any transformation to the specified columns)
+# You don't need to do anything for columns like "Region", "Year", "Inflow", "poverty_rate", etc.
+```
+
+Prep by removing NAs
+```{r}
+library(dplyr)
+
+# Identify rows with NA values and return the Year, Region, and the variable(s) with NA
+na_data <- region_year_data %>%
+  tidyr::gather(key = "variable", value = "value", -Year, -Region) %>%
+  filter(is.na(value)) %>%
+  dplyr::select(Year, Region, variable)
+
+# View the result
+head(na_data) #No NAs left!
+```
+
+Prep by adding a post-war dummy. 
+```{r}
+region_year_data <- region_year_data %>%
+  # Add the postwar dummy variable
+  mutate(war = if_else(Year >= 2022, 1, 0)) %>%
+  mutate(postwar = if_else(Year >= 2022, Year - 2021, 0)) 
+```
+
+Output folder
+```{r}
+output_directory <- "/Users/michelle/Documents/thesis/MODEL OUTPUT (w nowcasted series)" 
+```
+
+
+
+
+
+#AD: Plain DID 
+
+```{r}
+region_year_data_copy <- region_year_data %>%
+  dplyr::select(-mediazona) #needs to be logged only
+region_year_data <- region_year_data %>%
+  dplyr::select(-contains("mediazona"))
+```
+
+## A_X: No fixed effects (not really functional due to lack of predictors)
+
+```{r}
+# Load necessary libraries
+library(lmtest)  # For coeftest function
+library(sandwich) # For robust standard errors
+
+# Create the formula for the model (Inflow as the dependent variable) without an intercept
+formula <- as.formula(paste("log1p(Inflow) ~ ",   # Remove the intercept with "0 +"
+                            paste(c("war", "postwar"), collapse = " + ")))  
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+summary(full_model) # Standard errors
+print(robust_summary) # Robust errors
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(full_model, studentize = TRUE)
+bptest(full_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(full_model$fitted.values, full_model$residuals, 
+     main = "Residual Plot (Model 1A)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(full_model, which = 3)
+```
+
+```{r save}
+model_name <- "A_X"  # Replace this with your model name or identifier
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(full_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+```
+
+
+## A_FE: With fixed effects (not really functional due to overfit)
+
+```{r}
+# Load necessary libraries
+library(clubSandwich)
+library(lmtest)  # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable) without an intercept
+formula <- as.formula(paste("log1p(Inflow) ~ 0 +",   # Remove the intercept with "0 +"
+                            paste(c("war", "postwar", "factor(Region)"), collapse = " + ")))  
+
+# Fit the full model using all covariates and fixed effects
+full_model <- lm(formula, data = region_year_data)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(full_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(full_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(full_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(full_model)$adj.r.squared
+f_stat <- summary(full_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(full_model, studentize = TRUE)
+bptest(full_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(full_model$fitted.values, full_model$residuals, 
+     main = "Residual Plot (Model 1A)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(full_model, which = 3)
+```
+
+```{r save}
+model_name <- "A_FE"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(full_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+```
+
+
+#BD: DID with covariates
+
+##B_X_BIC: NO fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_X_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_FE_BIC: With fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Prepare the data (remove unwanted columns)
+region_year_data <- region_year_data %>% 
+  dplyr::select(-contains("mediazona"))
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_FE_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_X_AIC: NO fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_X_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+##B_FE_AIC: With fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Prepare the data (remove unwanted columns)
+region_year_data <- region_year_data %>% 
+  dplyr::select(-contains("mediazona"))
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "B_FE_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+
+#CD: DID adding Mediazona casualties (labor substitution analysis)
+We simply add mediazona data back into the mix and see if it is selected and what its coefficients look like. 
+
+```{r prep}
+region_year_data <- region_year_data_copy
+```
+
+##C_X_BIC: NO fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_X_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_FE_BIC: With fixed effects + BIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", k = log(nrow(region_year_data)), trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_FE_BIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_X_AIC: NO fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + ")))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model)) # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_X_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+##C_FE_AIC: With fixed effects + AIC
+
+```{r}
+# Load necessary libraries
+library(sandwich)  # For robust standard errors
+library(lmtest)    # For coeftest function
+
+# Create the formula for the model (Inflow as the dependent variable)
+formula <- as.formula(paste("log1p(Inflow) ~ ",  
+                            paste(names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))], collapse = " + "),  
+                            "+ factor(Region)"))
+
+full_model <- lm(formula, data = region_year_data)
+
+# Note: We specify k = log(n) to use BIC instead of AIC
+stepwise_model <- step(full_model, direction = "both", trace = 1)
+
+# Obtain robust standard errors
+robust_se <- vcovHC(stepwise_model, type = "HC3")  # HC3 for robust SE
+
+# Get the summary with robust standard errors
+robust_summary <- coeftest(stepwise_model, vcov = robust_se)  # Robust errors
+
+# Compare standard vs. robust results
+print(summary(stepwise_model))  # Standard errors
+print(robust_summary) # Robust errors
+
+# Extract and print Adjusted R-squared and F-statistic from the summary
+adj_r_squared <- summary(stepwise_model)$adj.r.squared
+f_stat <- summary(stepwise_model)$fstatistic
+
+cat("Adjusted R-squared: ", adj_r_squared, "\n")
+cat("F-statistic: ", f_stat[1], " on ", f_stat[2], " and ", f_stat[3], " DF \n")
+```
+
+```{r}
+# 1. Breusch-Pagan test for heteroskedasticity
+library(lmtest)
+bptest(stepwise_model, studentize = TRUE)
+bptest(stepwise_model, studentize = FALSE)
+
+# 2. Residual plot
+# Plot residuals vs fitted values to visually inspect for heteroskedasticity
+plot(stepwise_model$fitted.values, stepwise_model$residuals, 
+     main = "Residual Plot (Model 1B)", 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Optional: To further check for heteroskedasticity, you can use a scale-location plot
+plot(stepwise_model, which = 3)
+```
+
+```{r save}
+model_name <- "C_FE_AIC"
+
+# Save the standard summary output of the stepwise model
+summary_file <- file.path(output_directory, paste0(model_name, "_summary_", ".txt"))
+capture.output(summary(stepwise_model), file = summary_file)
+
+# Save the robust summary output with robust standard errors
+robust_summary_file <- file.path(output_directory, paste0(model_name, "_robust_summary_", ".txt"))
+capture.output(print(robust_summary), file = robust_summary_file)
+
+# Identify all potential covariates (excluding 'Region', 'Year', and 'Inflow')
+all_covariates <- names(region_year_data)[!(names(region_year_data) %in% c('Region', 'Year', 'Inflow'))]
+selected_covariates <- names(coef(stepwise_model))[-1]  # Exclude intercept
+non_selected_covariates <- setdiff(all_covariates, selected_covariates)
+non_selected_file <- file.path(output_directory, paste0(model_name, "_non_selected_covariates.txt"))
+capture.output(cat("Non-selected covariates:\n", paste(non_selected_covariates, collapse = ", "), "\n"),
+               file = non_selected_file)
+
+# Print out the file locations for confirmation
+cat("Files saved to:\n")
+cat("Model Summary: ", summary_file, "\n")
+cat("Robust Summary: ", robust_summary_file, "\n")
+cat("Non-selected covariates saved to:", non_selected_file, "\n")
+```
+
+
+
+
+
+##SUMMARY STATS
+
+```{r}
+library(dplyr)
+library(readr)
+library(purrr)
+
+# Read the data
+region_year_data_ss <- read_csv("Documents/thesis/region-year-data.csv")
+
+# Helper function to create formatted table for a given year
+get_top_flows <- function(data, year) {
+  data_year <- data %>%
+    filter(Year == year) %>%
+    dplyr::select(Region, Inflow, Outflow, Netflow)
+  
+  ranks <- paste0(c("First", "Second", "Third", "Fourth", "Fifth",
+                    "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"), " place")
+  
+  top_inflow <- data_year %>%
+    arrange(desc(Inflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Rank = ranks,
+           Inflow = paste0(Region, " (", format(round(Inflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Rank, Inflow)
+  
+  top_outflow <- data_year %>%
+    arrange(desc(Outflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Outflow = paste0(Region, " (", format(round(Outflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Outflow)
+  
+  top_netflow <- data_year %>%
+    arrange(desc(Netflow)) %>%
+    slice_head(n = 10) %>%
+    mutate(Netflow = paste0(Region, " (", format(round(Netflow, 2), big.mark = ","), ")")) %>%
+    dplyr::select(Netflow)
+  
+  final_table <- bind_cols(top_inflow, top_outflow, top_netflow)
+  colnames(final_table) <- c("#", "Inflow", "Outflow", "Netflow")
+  
+  # Add a separator row for clarity
+  separator_row <- data.frame("#" = paste("Top Flows in", year),
+                              Inflow = "", Outflow = "", Netflow = "")
+  
+  # Combine separator with data
+  result <- bind_rows(separator_row, final_table)
+  return(result)
+}
+
+# Generate tables and stack them with dividers
+years <- c(2021, 2022, 2023)
+combined_table <- map_df(years, ~get_top_flows(region_year_data_ss, .x))
+
+# Save to CSV
+write.csv(combined_table, "Documents/thesis/top_flows_2021_2023.csv", row.names = FALSE)
+```
+
+```{r}
+# 2. Load libraries
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthhires)
+
+# 3. Load Russia regions shapefile (admin-1 level)
+russia_sf <- ne_states(country = "Russia", returnclass = "sf")
+
+# 4. Read in your data
+region_data <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Inflow)
+
+region_data_outf <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Outflow)
+
+region_data_netfl <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Netflow)
+
+region_data_casualities22 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2022) %>%
+  dplyr::select(Region, log_mediazona)
+
+region_data_casualities23 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, log_mediazona)
+
+region_data_casualities24 <- read_csv("Documents/thesis/region-year-data.csv") %>%
+  filter(Year == 2024) %>%
+  dplyr::select(Region, log_mediazona)
+
+# 5. View the region names from shapefile and your data
+print(russia_sf$name_en)
+print(region_data$Region)
+```
+
+```{r}
+# 6. Create a matching table
+name_key <- tibble(
+  data_region = c(
+  "Altai Republic", "Altai Krai", "Pskov Oblast", "Krasnodar Krai",
+  "Karachay-Cherkess Republic", "The Kabardino-Balkar Republic", "Republic of North Ossetia — Alania",
+  "Republic of Ingushetia", "Chechen Republic", "Republic of Dagestan",
+  "Murmansk Oblast", "Republic of Karelia", "Leningrad Oblast",
+  "Kaliningrad Oblast", "Smolensk Oblast", "Bryansk Oblast",
+  "Kursk Oblast", "Belgorod Oblast", "Voronezh Oblast",
+  "Rostov Oblast", "Republic of Buryatia", "Tyva Republic",
+  "Zabaykalsky Krai", "Amur Oblast", "Jewish Autonomous Oblast",
+  "Khabarovsk Krai", "Primorsky Krai", "Tyumen Oblast",
+  "Kurgan Oblast", "Omsk Oblast", "Novosibirsk Oblast",
+  "Chelyabinsk Oblast", "Orenburg Oblast", "Saratov Oblast",
+  "Astrakhan Oblast", "Volgograd Oblast", NA,
+  "Magadan District", "Sakhalin District", NA,
+  NA, "Yamalo-Nenets Autonomous Okrug", NA,   #missing Chukotka for some reason, and Nenets is redundant
+  "Sakha (Yakutia) Republic", "Saint Petersburg", "Arkhangel'skaya Oblast'",
+  "Krasnoyarsk Krai", "Republic of Kalmykia", "Kamchatka Krai",
+  NA, "Republic of Bashkortostan", "Sverdlovsk Oblast",
+  "Khanty-Mansi Autonomous Okrug — Yugra", "Lipetsk Oblast", "Tambov Oblast",
+  "Tomsk District", "Republic of Tatarstan", "Ulyanovsk Oblast",
+  "Penza Oblast", "Kemerovo Oblast", "Oryol Oblast",
+  "Irkutsk Oblast", "Republic of Khakassia", "Republic of Mordovia",
+  "Kaluga Oblast", "Kostroma Oblast", "Yaroslavl Oblast",
+  "Vladimir Oblast", "Ryazan Oblast", "Ivanovo Oblast",
+  "Nizhny Novgorod Oblast'", "Tula Oblast", "Chuvash Republic",
+  "Vologda Oblast", "Novgorod Oblast", "Tver Oblast",
+  "Moscow", "Mari El Republic", "Kirov Oblast",
+  "Udmurt Republic", "Komi Republic", "Perm Krai",
+  "Samara Oblast", "Stavropol Krai", "Republic of Adygea"
+),
+
+  map_region = regions <- c(
+  "Altai Republic", "Altai Krai", "Pskov", "Krasnodar Krai", 
+  "Karachay-Cherkess Republic", "Kabardino-Balkaria", "Republic of North Ossetia-Alania",
+  "Republic of Ingushetia", "Chechen Republic", "Republic of Dagestan", 
+  "Murmansk", "Karelia", "Leningrad", 
+  "Kaliningrad", "Smolensk", "Bryansk", 
+  "Kursk", "Belgorod", "Voronezh", 
+  "Rostov", "Republic of Buryatia", "Tuva Republic", 
+  "Zabaykalsky Krai", "Amur", "Jewish", 
+  "Khabarovsk Krai", "Primorsky Krai", "Tyumen", 
+  "Kurgan", "Omsk", "Novosibirsk", 
+  "Chelyabinsk", "Orenburg", "Saratov", 
+  "Astrakhan", "Volgograd", "Autonomous Republic of Crimea", 
+  "Magadan", "Sakhalin", "Sevastopol", 
+  "Chukotka Autonomous Okrug", "Yamalo-Nenets Autonomous Okrug", "Nenets Autonomous Okrug", 
+  "Sakha Republic", "Saint Petersburg", "Arkhangelsk", 
+  "Krasnoyarsk Krai", "Republic of Kalmykia", "Kamchatka Krai", 
+  NA, "Bashkortostan", "Sverdlovsk", 
+  "Khanty-Mansi Autonomous Okrug", "Lipetsk", "Tambov", 
+  "Tomsk", "Republic of Tatarstan", "Ulyanovsk", 
+  "Penza", "Kemerovo", "Oryol", 
+  "Irkutsk", "Republic of Khakassia", "Republic of Mordovia", 
+  "Kaluga", "Kostroma", "Yaroslavl", 
+  "Vladimir", "Ryazan", "Ivanovo", 
+  "Nizhny Novgorod", "Tula", "Chuvash Republic", 
+  "Vologda", "Novgorod", "Tver", 
+  "Moscow", "Mari El Republic", "Kirov", 
+  "Udmurt Republic", "Komi Republic", "Perm Krai", 
+  "Samara", "Stavropol Krai", "Republic of Adygea"
+),
+)
+
+# 7. Join your data with shapefile
+region_data_matched <- region_data %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Inflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Inflow (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Inflows to Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_1.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_outf %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Outflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Outflows (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Outflows from Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_2.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_netfl %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = Netflow), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Net flows (2023)", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Kyrgyz Net Flows to Russia (2023)",
+    caption = "Data source: Rosstat"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_3.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities22 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2022)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2022.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities23 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2023)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2023.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+```{r}
+# 7. Join your data with shapefile
+region_data_matched <- region_data_casualities24 %>%
+  left_join(name_key, by = c("Region" = "data_region"))
+
+# 8. Merge with shapefile
+russia_joined <- russia_sf %>%
+  left_join(region_data_matched, by = c("name_en" = "map_region"))
+
+# Check if any rows have NA in the joined data (which indicates a mismatch in names)
+russia_joined %>%
+  filter(is.na(name_en)) %>%
+  dplyr::select(name_en)  # This will help you identify unmatched regions
+
+
+
+ggplot(data = russia_joined) + 
+  geom_sf(aes(fill = log_mediazona), color = "white", size = 0.2) + 
+  scale_fill_viridis_c(option = "C", name = "Logged Casualties", na.value = "grey90") + 
+  theme_minimal() + 
+  labs(
+    title = "Confirmed casualties of conscripts per Russian region (2024)",
+    caption = "Data source: Mediazona-BBC"
+  ) + 
+  theme(legend.position = "right") + 
+  coord_sf(xlim = c(0, 180))  # Trim longitude to 0° to 180°
+
+
+ggsave("/Users/michelle/Documents/thesis/russia_map_plot_Mediazona2024.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+
+Descriptives for flows
+
+```{r}
+regions_of_interest <- c("Moscow Oblast", "Sakhalin District", "Sakha (Yakutia) Republic")
+flow_variables <- c("Inflow", "Outflow", "Netflow")  # Replace these with actual column names for inflow, outflow, and netflow
+
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data_ss %>%
+  filter(Region %in% regions_of_interest) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) %>%
+  na.omit()
+
+# Now, let's calculate the total average across all regions for each flow variable
+total_avg_data <- region_flow_data %>%
+  group_by(Year, Flow) %>%
+  summarise(Value = mean(Value, na.rm = TRUE)) %>%
+  mutate(Region = "Total Average")
+
+# Combine the individual region data with the total average data
+combined_data <- bind_rows(region_flow_data, total_avg_data)
+
+# Define custom labels for regions
+region_labels <- c(
+  "Moscow Oblast" = "Moscow",
+  "Sakhalin District" = "Sakhalin",
+  "Sakha (Yakutia) Republic" = "Yakutia",
+  "Total Average" = "Average"
+)
+
+# Create the 3x4 grid of time series plots with standardized scales
+ggplot(combined_data, aes(x = Year, y = Value, color = Flow)) +
+  geom_line() +
+  facet_grid(Region ~ Flow, scales = "fixed",  # Standardize scales across all plots
+             labeller = labeller(Region = region_labels)) +  # Apply custom region labels
+  labs(title = "Flow Variables by Region",
+       x = "Year",
+       y = "Flow Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 1/2) +  # Make the plot wider by adjusting aspect ratio
+  scale_color_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "gray")) + 
+  scale_x_continuous(breaks = function(x) round(x))  # Round the x-axis years to integers
+```
+
+```{r}
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data_ss %>%
+  filter(Year == 2023) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) %>%
+  na.omit()
+
+# Create faceted histogram by flow variable but with all regions together
+ggplot(region_flow_data, aes(x = Value, fill = Flow)) +
+  geom_histogram(binwidth = 1000, position = "identity", alpha = 0.6) +  # Histograms with some transparency
+  facet_wrap(~ Flow, scales = "free_y") +  # Facet by Flow variable
+  labs(title = "Distribution of Flow Variables",
+       x = "Flow Value",
+       y = "Frequency") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 3/4) +  
+  scale_fill_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "gray"))  # Custom fill colors
+
+
+ggsave("/Users/michelle/Documents/thesis/histogram_flows.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+Add nowcast
+
+```{r}
+extended_time_series_flows_infl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_inflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Inflow_Nowc = `Fitted Values`)
+
+extended_time_series_flows_outfl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_OUTflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Outflow_Nowc = `Fitted Values`)
+
+extended_time_series_flows_netfl <- read_csv("/Users/michelle/Documents/thesis/extended_time_series_NETflows_noeconomiccovariates.csv") %>%
+  mutate(across(.cols = -c(Year, Region), .fns = ~ if_else(. < 0, 0, .))) %>%
+  mutate(Netflow_Nowc = `Fitted Values`)
+
+region_year_data <- read_csv("/Users/michelle/Documents/thesis/region-year-data.csv") 
+
+# Retain actual Inflow data where available, otherwise use nowcasted values
+region_year_data <- region_year_data %>%
+  left_join(extended_time_series_flows_infl %>% dplyr::select(Year, Region, Inflow_Nowc), 
+            by = c("Year", "Region")) %>%
+  left_join(extended_time_series_flows_outfl %>% dplyr::select(Year, Region, Outflow_Nowc), 
+            by = c("Year", "Region")) %>%
+  left_join(extended_time_series_flows_netfl %>% dplyr::select(Year, Region, Netflow_Nowc), 
+            by = c("Year", "Region"))
+```
+
+```{r}
+regions_of_interest <- c("Moscow Oblast", "Sakhalin District", "Sakha (Yakutia) Republic")
+flow_variables <- c("Inflow", "Outflow", "Netflow", "Inflow_Nowc", "Outflow_Nowc", "Netflow_Nowc")  # Replace these with actual column names for inflow, outflow, and netflow
+
+# Filter the dataset for relevant regions and flow variables
+region_flow_data <- region_year_data %>%
+  filter(Region %in% regions_of_interest) %>%
+  dplyr::select(Region, Year, all_of(flow_variables)) %>%
+  gather(key = "Flow", value = "Value", -Region, -Year) 
+
+# Now, let's calculate the total average across all regions for each flow variable
+total_avg_data <- region_flow_data %>%
+  group_by(Year, Flow) %>%
+  summarise(Value = mean(Value)) %>%
+  mutate(Region = "Total Average")
+
+# Combine the individual region data with the total average data
+combined_data_nowc <- bind_rows(region_flow_data, total_avg_data) %>%
+  filter(Flow %in% c("Inflow_Nowc", "Outflow_Nowc", "Netflow_Nowc"))
+
+# Define custom labels for regions
+region_labels <- c(
+  "Moscow Oblast" = "Moscow",
+  "Sakhalin District" = "Sakhalin",
+  "Sakha (Yakutia) Republic" = "Yakutia",
+  "Total Average" = "Average"
+)
+
+combined_data_all <- bind_rows(
+  combined_data %>% mutate(Type = "Original"),  # Add a column to indicate original data
+  combined_data_nowc %>% mutate(Type = "Nowcast")  # Add a column to indicate nowcast data
+)%>%
+  mutate(Flow = recode(Flow, 
+                       "Inflow_Nowc" = "Inflow", 
+                       "Outflow_Nowc" = "Outflow", 
+                       "Netflow_Nowc" = "Netflow")) %>%
+  filter(Year != 2018)
+
+# Create the 3x4 grid of time series plots with standardized scales and overlay the nowcasts
+ggplot(data = combined_data_all) +
+  geom_line(aes(x = Year, y = Value, color = Flow, linetype = Type)) +  # Overlay original and nowcasted data
+  facet_grid(Region ~ Flow, scales = "fixed",  # Standardize scales across all plots
+             labeller = labeller(Region = region_labels)) +  # Apply custom region labels
+  labs(title = "Flow Variables by Region",
+       x = "Year",
+       y = "Flow Value") +
+  theme_minimal() +
+  theme(legend.position = "bottom", 
+        strip.text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        aspect.ratio = 1/2) +  # Make the plot wider by adjusting aspect ratio 
+  scale_linetype_manual(values = c("Original" = "solid", "Nowcast" = "dashed")) +  # Different line types for original and nowcasted data
+  scale_color_manual(values = c("Inflow" = "blue", "Outflow" = "red", "Netflow" = "darkgray")) + 
+  scale_x_continuous(breaks = seq(min(combined_data_all$Year), max(combined_data_all$Year), by = 2))  # Set major x-axis breaks to 2 year intervals
+
+
+ggsave("/Users/michelle/Documents/thesis/flow_vars_v_nowvast.png", plot = last_plot(), width = 10, height = 8, dpi = 300)
+```
+
+

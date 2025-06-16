@@ -1,0 +1,90 @@
+
+t test of coefficients:
+
+                                                     Estimate Std. Error  t value  Pr(>|t|)    
+war                                                  1.726484   0.121524  14.2070 < 2.2e-16 ***
+postwar                                             -0.461237   0.071433  -6.4570 1.220e-09 ***
+factor(Region)Altai Krai                             4.501382   0.264545  17.0156 < 2.2e-16 ***
+factor(Region)Altai Republic                         3.522211   0.186366  18.8995 < 2.2e-16 ***
+factor(Region)Amur Oblast                            4.901662   0.270589  18.1148 < 2.2e-16 ***
+factor(Region)Arkhangel'skaya Oblast'                2.322839   0.344117   6.7501 2.577e-10 ***
+factor(Region)Astrakhan Oblast                       3.522217   0.254543  13.8374 < 2.2e-16 ***
+factor(Region)Belgorod Oblast                        4.584242   0.118626  38.6446 < 2.2e-16 ***
+factor(Region)Bryansk Oblast                         2.454049   0.156182  15.7127 < 2.2e-16 ***
+factor(Region)Chechen Republic                       2.345242   0.281166   8.3411 3.222e-14 ***
+factor(Region)Chelyabinsk Oblast                     6.083622   0.074747  81.3897 < 2.2e-16 ***
+factor(Region)Chuvash Republic                       2.867697   0.426998   6.7159 3.095e-10 ***
+factor(Region)Irkutsk Oblast                         6.398340   0.231280  27.6650 < 2.2e-16 ***
+factor(Region)Ivanovo Oblast                         4.467574   0.876896   5.0948 9.733e-07 ***
+factor(Region)Jewish Autonomous Oblast               0.234445   0.742736   0.3156    0.7527    
+factor(Region)Kaliningrad Oblast                     5.324613   0.228641  23.2881 < 2.2e-16 ***
+factor(Region)Kaluga Oblast                          5.935817   0.821483   7.2257 1.923e-11 ***
+factor(Region)Kamchatka Krai                         6.790789   0.100466  67.5930 < 2.2e-16 ***
+factor(Region)Karachay-Cherkess Republic             2.073093   0.199401  10.3966 < 2.2e-16 ***
+factor(Region)Kemerovo Oblast                        4.964956   0.270799  18.3345 < 2.2e-16 ***
+factor(Region)Khabarovsk Krai                        6.568396   0.308605  21.2841 < 2.2e-16 ***
+factor(Region)Khanty-Mansi Autonomous Okrug — Yugra  6.144361   0.172147  35.6924 < 2.2e-16 ***
+factor(Region)Kirov Oblast                           2.824923   0.133350  21.1843 < 2.2e-16 ***
+factor(Region)Komi Republic                          3.928490   0.090959  43.1898 < 2.2e-16 ***
+factor(Region)Kostroma Oblast                        3.666426   0.490653   7.4725 4.838e-12 ***
+factor(Region)Krasnodar Krai                         5.217191   0.240916  21.6557 < 2.2e-16 ***
+factor(Region)Krasnoyarsk Krai                       7.397737   0.060123 123.0426 < 2.2e-16 ***
+factor(Region)Kurgan Oblast                          3.576641   0.580344   6.1630 5.579e-09 ***
+factor(Region)Kursk Oblast                           3.663711   0.124386  29.4544 < 2.2e-16 ***
+factor(Region)Leningrad Oblast                       5.418373   0.283047  19.1430 < 2.2e-16 ***
+factor(Region)Lipetsk Oblast                         3.904467   0.093604  41.7127 < 2.2e-16 ***
+factor(Region)Magadan District                       3.651376   0.201568  18.1149 < 2.2e-16 ***
+factor(Region)Mari El Republic                       2.247863   0.361784   6.2133 4.313e-09 ***
+factor(Region)Moscow                                 6.323775   0.103739  60.9587 < 2.2e-16 ***
+factor(Region)Moscow Oblast                          7.218106   0.197856  36.4817 < 2.2e-16 ***
+factor(Region)Murmansk Oblast                        4.787655   0.141687  33.7903 < 2.2e-16 ***
+factor(Region)Nizhny Novgorod Oblast'                4.904198   0.103603  47.3364 < 2.2e-16 ***
+factor(Region)Novgorod Oblast                        2.335318   0.174137  13.4108 < 2.2e-16 ***
+factor(Region)Novosibirsk Oblast                     6.159372   0.264517  23.2853 < 2.2e-16 ***
+factor(Region)Omsk Oblast                            4.112595   0.122010  33.7071 < 2.2e-16 ***
+factor(Region)Orenburg Oblast                        4.645550   0.080859  57.4525 < 2.2e-16 ***
+factor(Region)Oryol Oblast                           3.122752   0.089418  34.9231 < 2.2e-16 ***
+factor(Region)Penza Oblast                           4.289747   0.102766  41.7428 < 2.2e-16 ***
+factor(Region)Perm Krai                              4.878579   0.076320  63.9225 < 2.2e-16 ***
+factor(Region)Primorsky Krai                         6.904429   0.090208  76.5388 < 2.2e-16 ***
+factor(Region)Pskov Oblast                           3.521087   0.647889   5.4347 2.012e-07 ***
+factor(Region)Republic of Adygea                     3.979220   0.138513  28.7281 < 2.2e-16 ***
+factor(Region)Republic of Bashkortostan              4.508185   0.105825  42.6003 < 2.2e-16 ***
+factor(Region)Republic of Buryatia                   5.011867   0.147926  33.8809 < 2.2e-16 ***
+factor(Region)Republic of Dagestan                   4.715438   0.172746  27.2969 < 2.2e-16 ***
+factor(Region)Republic of Ingushetia                -0.092499   0.315716  -0.2930    0.7699    
+factor(Region)Republic of Kalmykia                   0.308826   0.216977   1.4233    0.1566    
+factor(Region)Republic of Karelia                    2.452066   0.316332   7.7516 9.916e-13 ***
+factor(Region)Republic of Khakassia                  4.378567   0.237571  18.4305 < 2.2e-16 ***
+factor(Region)Republic of Mordovia                   3.959305   0.606986   6.5229 8.626e-10 ***
+factor(Region)Republic of North Ossetia — Alania     0.652032   0.541394   1.2044    0.2302    
+factor(Region)Republic of Tatarstan                  4.793981   0.247727  19.3518 < 2.2e-16 ***
+factor(Region)Rostov Oblast                          4.855485   0.273081  17.7804 < 2.2e-16 ***
+factor(Region)Ryazan Oblast                          3.718796   0.260972  14.2498 < 2.2e-16 ***
+factor(Region)Saint Petersburg                       6.401890   0.465459  13.7539 < 2.2e-16 ***
+factor(Region)Sakha (Yakutia) Republic               8.032028   0.125888  63.8032 < 2.2e-16 ***
+factor(Region)Sakhalin District                      7.137871   0.264346  27.0020 < 2.2e-16 ***
+factor(Region)Samara Oblast                          5.897909   0.180107  32.7468 < 2.2e-16 ***
+factor(Region)Saratov Oblast                         5.235060   0.123316  42.4524 < 2.2e-16 ***
+factor(Region)Smolensk Oblast                        4.330243   0.273409  15.8380 < 2.2e-16 ***
+factor(Region)Stavropol Krai                         3.901992   0.252794  15.4355 < 2.2e-16 ***
+factor(Region)Sverdlovsk Oblast                      5.980186   0.153443  38.9733 < 2.2e-16 ***
+factor(Region)Tambov Oblast                          3.397707   0.159119  21.3533 < 2.2e-16 ***
+factor(Region)The Kabardino-Balkar Republic          3.333360   0.252797  13.1859 < 2.2e-16 ***
+factor(Region)Tomsk District                         6.022846   0.118659  50.7577 < 2.2e-16 ***
+factor(Region)Tula Oblast                            4.979827   0.104285  47.7519 < 2.2e-16 ***
+factor(Region)Tver Oblast                            3.875991   0.268926  14.4129 < 2.2e-16 ***
+factor(Region)Tyumen Oblast                          6.700889   0.064757 103.4775 < 2.2e-16 ***
+factor(Region)Tyva Republic                          4.449838   0.058471  76.1038 < 2.2e-16 ***
+factor(Region)Udmurt Republic                        4.168572   0.353462  11.7935 < 2.2e-16 ***
+factor(Region)Ulyanovsk Oblast                       2.997289   0.181757  16.4906 < 2.2e-16 ***
+factor(Region)Vladimir Oblast                        4.633755   0.231341  20.0300 < 2.2e-16 ***
+factor(Region)Volgograd Oblast                       4.089684   0.221286  18.4814 < 2.2e-16 ***
+factor(Region)Vologda Oblast                         4.432266   0.312435  14.1862 < 2.2e-16 ***
+factor(Region)Voronezh Oblast                        4.914128   0.245194  20.0418 < 2.2e-16 ***
+factor(Region)Yamalo-Nenets Autonomous Okrug         4.430594   0.116198  38.1296 < 2.2e-16 ***
+factor(Region)Yaroslavl Oblast                       3.421319   0.098059  34.8904 < 2.2e-16 ***
+factor(Region)Zabaykalsky Krai                       3.225519   0.102302  31.5293 < 2.2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+

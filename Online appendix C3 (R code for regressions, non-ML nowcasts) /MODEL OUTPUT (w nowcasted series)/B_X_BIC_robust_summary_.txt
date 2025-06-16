@@ -1,0 +1,15 @@
+
+t test of coefficients:
+
+                                                   Estimate Std. Error t value  Pr(>|t|)    
+(Intercept)                                      -30.569229   3.536124 -8.6448 < 2.2e-16 ***
+log_total_pop                                     10.065182   3.419913  2.9431  0.003407 ** 
+log_city_pop                                       1.160193   0.500352  2.3188  0.020829 *  
+log_rural_pop                                      0.119949   0.026821  4.4721 9.685e-06 ***
+log_avg_nominal_gross_wages                        2.425026   0.266882  9.0865 < 2.2e-16 ***
+lag_changeinindustrialproduction_water_utilities  -0.524917   0.205360 -2.5561  0.010894 *  
+lag_log_total_pop                                -10.510732   3.536051 -2.9724  0.003103 ** 
+postwar                                           -0.469852   0.061941 -7.5855 1.743e-13 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+

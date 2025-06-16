@@ -1,0 +1,10 @@
+
+t test of coefficients:
+
+            Estimate Std. Error t value  Pr(>|t|)    
+(Intercept)  4.36963    0.17886 24.4303 < 2.2e-16 ***
+war          1.72648    0.45860  3.7647 0.0002098 ***
+postwar     -0.46124    0.26948 -1.7116 0.0882685 .  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+

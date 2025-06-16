@@ -1,0 +1,18 @@
+
+t test of coefficients:
+
+                                                         Estimate Std. Error t value  Pr(>|t|)    
+(Intercept)                                            -26.655156   3.314278 -8.0425 7.072e-15 ***
+change_in_output                                        -1.706030   0.868398 -1.9646  0.050046 .  
+changeinindustrialproduction_electricity_utilities      -0.934016   0.620571 -1.5051  0.132965    
+log_total_pop                                            0.770785   0.404373  1.9061  0.057237 .  
+log_city_pop                                             9.753899   3.379416  2.8863  0.004076 ** 
+log_rural_pop                                            0.077745   0.026223  2.9648  0.003182 ** 
+log_avg_nominal_gross_wages                              2.324395   0.248970  9.3361 < 2.2e-16 ***
+lag_changeinindustrialproduction_electricity_utilities  -0.698369   0.570233 -1.2247  0.221292    
+lag_changeinindustrialproduction_water_utilities        -0.244904   0.137647 -1.7792  0.075843 .  
+lag_log_city_pop                                        -9.836737   3.235135 -3.0406  0.002492 ** 
+postwar                                                 -0.100666   0.057767 -1.7426  0.082045 .  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+

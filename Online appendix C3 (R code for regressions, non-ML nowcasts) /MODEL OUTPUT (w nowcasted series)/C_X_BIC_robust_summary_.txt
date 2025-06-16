@@ -1,0 +1,17 @@
+
+t test of coefficients:
+
+                                                   Estimate Std. Error t value  Pr(>|t|)    
+(Intercept)                                      -29.060246   3.510789 -8.2774 1.279e-15 ***
+log_mediazona                                      0.400405   0.110258  3.6315 0.0003123 ***
+log_total_pop                                     10.970598   3.634818  3.0182 0.0026792 ** 
+log_rural_pop                                      0.104493   0.026497  3.9436 9.234e-05 ***
+log_avg_nominal_gross_wages                        2.431061   0.257773  9.4310 < 2.2e-16 ***
+lag_changeinindustrialproduction_water_utilities  -0.535081   0.206094 -2.5963 0.0097147 ** 
+lag_log_mediazona                                 -0.156066   0.031823 -4.9041 1.290e-06 ***
+lag_log_total_pop                                -11.446231   3.836923 -2.9832 0.0029992 ** 
+lag_log_city_pop                                   1.094865   0.488315  2.2421 0.0254128 *  
+war                                               -2.688082   0.597108 -4.5018 8.481e-06 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+

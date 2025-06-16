@@ -1,0 +1,28 @@
+
+Call:
+lm(formula = log1p(Inflow) ~ change_in_real_avg_wages + changeinindustrialproduction_all + 
+    log_mediazona + log_total_pop + log_avg_nominal_gross_wages + 
+    lag_log_mediazona + lag_log_total_pop + war, data = region_year_data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-3.7325 -0.4999  0.0514  0.6175  2.5573 
+
+Coefficients:
+                                  Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                      -39.01259    3.52506 -11.067  < 2e-16 ***
+change_in_real_avg_wages           7.77165    2.58590   3.005  0.00294 ** 
+changeinindustrialproduction_all  -1.07958    0.43185  -2.500  0.01311 *  
+log_mediazona                      0.35228    0.11754   2.997  0.00302 ** 
+log_total_pop                     10.12917    3.02583   3.348  0.00095 ***
+log_avg_nominal_gross_wages        2.53174    0.21579  11.732  < 2e-16 ***
+lag_log_mediazona                 -0.27212    0.06052  -4.496 1.09e-05 ***
+lag_log_total_pop                 -9.36849    3.05720  -3.064  0.00244 ** 
+war                               -1.88081    0.61003  -3.083  0.00229 ** 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 1.047 on 234 degrees of freedom
+Multiple R-squared:  0.596,	Adjusted R-squared:  0.5821 
+F-statistic: 43.14 on 8 and 234 DF,  p-value: < 2.2e-16
+

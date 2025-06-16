@@ -1,0 +1,36 @@
+
+Call:
+lm(formula = log1p(Inflow) ~ change_in_real_avg_wages + changeinindustrialproduction_all + 
+    changeinindustrialproduction_electricity_utilities + log_mediazona + 
+    log_total_pop + log_rural_pop + log_avg_nominal_gross_wages + 
+    lag_changeinindustrialproduction_manufacturing + lag_changeinindustrialproduction_electricity_utilities + 
+    lag_changeinindustrialproduction_water_utilities + lag_log_mediazona + 
+    lag_log_total_pop + war, data = region_year_data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-3.6522 -0.4920  0.0487  0.5891  2.6348 
+
+Coefficients:
+                                                        Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                                            -36.34819    4.21425  -8.625 1.08e-15 ***
+change_in_real_avg_wages                                 6.04438    2.59024   2.334 0.020487 *  
+changeinindustrialproduction_all                        -1.08008    0.44610  -2.421 0.016249 *  
+changeinindustrialproduction_electricity_utilities      -0.87155    0.47787  -1.824 0.069484 .  
+log_mediazona                                            0.26650    0.11788   2.261 0.024711 *  
+log_total_pop                                           11.16697    2.98539   3.741 0.000232 ***
+log_rural_pop                                            0.08911    0.04052   2.199 0.028882 *  
+log_avg_nominal_gross_wages                              2.63699    0.23948  11.011  < 2e-16 ***
+lag_changeinindustrialproduction_manufacturing          -0.66344    0.37413  -1.773 0.077508 .  
+lag_changeinindustrialproduction_electricity_utilities  -0.88448    0.48633  -1.819 0.070265 .  
+lag_changeinindustrialproduction_water_utilities        -0.37897    0.21641  -1.751 0.081254 .  
+lag_log_mediazona                                       -0.24041    0.06009  -4.001 8.52e-05 ***
+lag_log_total_pop                                      -10.41487    3.01687  -3.452 0.000662 ***
+war                                                     -1.57507    0.60669  -2.596 0.010036 *  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 1.024 on 229 degrees of freedom
+Multiple R-squared:  0.6218,	Adjusted R-squared:  0.6004 
+F-statistic: 28.97 on 13 and 229 DF,  p-value: < 2.2e-16
+

@@ -1,0 +1,23 @@
+
+Call:
+lm(formula = log1p(Outflow) ~ log_city_pop + log_rural_pop + 
+    log_avg_nominal_gross_wages + lag_log_city_pop, data = region_year_data)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-3.8287 -0.6108  0.0467  0.7042  2.5129 
+
+Coefficients:
+                             Estimate Std. Error t value Pr(>|t|)    
+(Intercept)                 -26.88730    1.75114 -15.354  < 2e-16 ***
+log_city_pop                 11.48287    2.51178   4.572 6.16e-06 ***
+log_rural_pop                 0.08990    0.02891   3.110  0.00198 ** 
+log_avg_nominal_gross_wages   2.04720    0.14532  14.087  < 2e-16 ***
+lag_log_city_pop            -10.82828    2.51865  -4.299 2.08e-05 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 1.087 on 481 degrees of freedom
+Multiple R-squared:  0.483,	Adjusted R-squared:  0.4787 
+F-statistic: 112.3 on 4 and 481 DF,  p-value: < 2.2e-16
+
